@@ -16,12 +16,16 @@ songs.push(...customSongs);
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const audio = $("#audio");
+const playerLoadingContainer = $("#player-loading-animation");
 const favoriteIds = new Set(loadFavorites());
 let currentSong = null;
 let currentIndex = -1;
 let shuffleEnabled = false;
 let repeatMode = 0;
 let toastTimer;
+let loadingAnimationSongId = null;
+let loadingAnimationStartedAt = 0;
+let loadingAnimationHideTimer;
 
 function loadCustomSongs() {
   try {
@@ -230,8 +234,11 @@ function updateProgressFill(input) {
 }
 
 async function playSong(song, autoplay = true) {
+  const isNewSong = currentSong?.id !== song.id;
   currentSong = song;
   currentIndex = songs.indexOf(song);
+  if (autoplay && (isNewSong || loadingAnimationSongId === song.id)) showSongLoading(song);
+  else stopSongLoading();
   audio.src = song.url;
   audio.load();
   const playerCover = $("#player-cover");
@@ -245,9 +252,13 @@ async function playSong(song, autoplay = true) {
   if (autoplay) {
     try {
       await audio.play();
-      if (currentSong?.id === song.id) setPlayButton(true);
+      if (currentSong?.id === song.id) {
+        hideSongLoading(song.id);
+        setPlayButton(true);
+      }
     } catch (error) {
       if (currentSong?.id === song.id) {
+        hideSongLoading(song.id);
         setPlayButton(false);
         showToast("This song couldn't be played. Check the Cloudinary link and try again.");
         console.error(`Could not play "${song.title}".`, error);
@@ -256,6 +267,31 @@ async function playSong(song, autoplay = true) {
   } else {
     setPlayButton(false);
   }
+}
+
+function showSongLoading(song) {
+  clearTimeout(loadingAnimationHideTimer);
+  loadingAnimationSongId = song.id;
+  loadingAnimationStartedAt = Date.now();
+  playerLoadingContainer.classList.add("visible");
+}
+
+function hideSongLoading(songId) {
+  if (loadingAnimationSongId !== songId) return;
+  const visibleFor = Date.now() - loadingAnimationStartedAt;
+  clearTimeout(loadingAnimationHideTimer);
+  loadingAnimationHideTimer = setTimeout(() => {
+    if (loadingAnimationSongId !== songId) return;
+    playerLoadingContainer.classList.remove("visible");
+    loadingAnimationSongId = null;
+  }, Math.max(0, 180 - visibleFor));
+}
+
+function stopSongLoading() {
+  if (!loadingAnimationSongId) return;
+  clearTimeout(loadingAnimationHideTimer);
+  playerLoadingContainer.classList.remove("visible");
+  loadingAnimationSongId = null;
 }
 
 function setPlayButton(isPlaying) {
@@ -545,7 +581,12 @@ audio.addEventListener("timeupdate", () => {
   updateProgressFill($("#progress"));
 });
 audio.addEventListener("play", () => setPlayButton(true));
-audio.addEventListener("pause", () => setPlayButton(false));
+audio.addEventListener("pause", () => {
+  setPlayButton(false);
+});
+audio.addEventListener("playing", () => {
+  if (currentSong) hideSongLoading(currentSong.id);
+});
 audio.addEventListener("ended", () => {
   if (repeatMode === 2) {
     audio.currentTime = 0;
@@ -558,8 +599,48 @@ audio.addEventListener("ended", () => {
 });
 audio.addEventListener("error", () => {
   if (currentSong) {
+    hideSongLoading(currentSong.id);
     setPlayButton(false);
     showToast("Couldn't load this audio. Please check the Cloudinary asset link.");
+  }
+});
+
+const themeToggle = $("#theme-toggle");
+const themeLabel = themeToggle.querySelector("span:last-child");
+
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+
+  const isLight = theme === "light";
+  themeToggle.querySelector("span[aria-hidden='true']").textContent = isLight ? "☾" : "☀";
+  themeToggle.setAttribute(
+    "aria-label",
+    isLight ? "Switch to dark mode" : "Switch to light mode"
+  );
+  themeLabel.textContent = isLight ? "Dark mode" : "Light mode";
+}
+
+function getSavedTheme() {
+  try {
+    return localStorage.getItem("sonder-theme") === "light" ? "light" : "dark";
+  } catch (error) {
+    console.warn("Could not read the saved theme.", error);
+    return "dark";
+  }
+}
+
+setTheme(getSavedTheme());
+
+themeToggle.addEventListener("click", () => {
+  const nextTheme =
+    document.documentElement.dataset.theme === "light" ? "dark" : "light";
+
+  setTheme(nextTheme);
+
+  try {
+    localStorage.setItem("sonder-theme", nextTheme);
+  } catch (error) {
+    console.warn("Could not save the selected theme.", error);
   }
 });
 
