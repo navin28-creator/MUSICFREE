@@ -21,7 +21,7 @@ const favoriteIds = new Set(loadFavorites());
 let currentSong = null;
 let currentIndex = -1;
 let shuffleEnabled = false;
-let repeatMode = 0;
+let repeatMode = 1;
 let toastTimer;
 let loadingAnimationSongId = null;
 let loadingAnimationStartedAt = 0;
@@ -357,14 +357,14 @@ function escapeHtml(value) {
 function renderCards() {
   renderLibrary();
   $("#quick-grid").innerHTML = songs.slice(0, 6).map((song) => `
-    <button class="quick-card" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}">
+    <button class="quick-card" data-play="${song.id}" title="${escapeHtml(song.title)}" aria-label="Play ${escapeHtml(song.title)}">
       ${artwork(song)}
       <span class="quick-card-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span>
       <span class="quick-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></span>
     </button>`).join("");
 
   $("#album-grid").innerHTML = songs.slice(0, 5).map((song) => `
-    <button class="album-card" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}">
+    <button class="album-card" data-play="${song.id}" title="${escapeHtml(song.title)}" aria-label="Play ${escapeHtml(song.title)}">
       ${artwork(song)}
       <span class="album-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></span>
       <span class="album-meta"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span>
@@ -389,6 +389,14 @@ function songsForArtist(artist) {
   return songs.filter((song) => song.artist.split(/\s*,\s*/).map((name) => name.trim()).includes(artist));
 }
 
+function musicDirectorNames() {
+  return [...new Set(songs.flatMap((song) => (song.composer || "").split(/\s*,\s*/).map((name) => name.trim()).filter(Boolean)))].sort((a, b) => a.localeCompare(b));
+}
+
+function songsForMusicDirector(musicDirector) {
+  return songs.filter((song) => (song.composer || "").split(/\s*,\s*/).map((name) => name.trim()).includes(musicDirector));
+}
+
 function renderLibrary() {
   const library = $("#dynamic-library-list");
   const playlistItems = playlists.map((playlist, index) => {
@@ -402,19 +410,28 @@ function renderLibrary() {
     const count = songsForArtist(artist).length;
     return `<button class="library-item artist-library" data-artist="${escapeHtml(artist)}">
       <span class="artist-library-art">${escapeHtml(artist.split(/\s+/).map((word) => word[0]).join("").slice(0, 2).toUpperCase())}</span>
-      <span class="library-copy"><strong>${escapeHtml(artist)}</strong><small>Artist · ${count} ${count === 1 ? "song" : "songs"}</small></span>
+      <span class="library-copy"><strong>${escapeHtml(artist)}</strong><small>Artist / singer · ${count} ${count === 1 ? "song" : "songs"}</small></span>
     </button>`;
   });
-  library.innerHTML = [...playlistItems, ...artistItems].join("");
+  const musicDirectorItems = musicDirectorNames().map((musicDirector) => {
+    const count = songsForMusicDirector(musicDirector).length;
+    return `<button class="library-item person-library music-director-library" data-person="${escapeHtml(musicDirector)}" data-person-role="music-director">
+      <span class="artist-library-art">${escapeHtml(musicDirector.split(/\s+/).map((word) => word[0]).join("").slice(0, 2).toUpperCase())}</span>
+      <span class="library-copy"><strong>${escapeHtml(musicDirector)}</strong><small>Music director · ${count} ${count === 1 ? "song" : "songs"}</small></span>
+    </button>`;
+  });
+  library.innerHTML = [...playlistItems, ...artistItems, ...musicDirectorItems].join("");
   applyLibraryFilter($(".filter-chip.selected")?.dataset.libraryFilter || "all");
 }
 
 function applyLibraryFilter(filter) {
   $$(".library-item", $("#library-list")).forEach((item) => {
     const isPlaylist = item.classList.contains("playlist-library");
-    const isArtist = item.classList.contains("artist-library");
+    const isSinger = item.classList.contains("artist-library");
+    const isMusicDirector = item.classList.contains("music-director-library");
     item.hidden = (filter === "playlist" && !isPlaylist && !item.classList.contains("liked-library")) ||
-      (filter === "artist" && !isArtist);
+      (filter === "singer" && !isSinger) ||
+      (filter === "music-director" && !isMusicDirector);
   });
 }
 
@@ -425,18 +442,19 @@ function showCollection({ type, name, description, tracks }) {
   }
   activeCollectionSongs = tracks;
   const hero = $("#collection-hero");
-  const isArtist = type === "artist";
-  const coverMarkup = isArtist
+  const isPerson = type === "artist" || type === "music-director";
+  const personRole = type === "music-director" ? "MUSIC DIRECTOR" : "ARTIST / SINGER";
+  const coverMarkup = isPerson
     ? artwork(tracks[0], "collection-art artist-collection-art")
     : `<div class="collection-mosaic">${tracks.slice(0, 4).map((song) => artwork(song, "collection-mosaic-art")).join("")}</div>`;
 
-  hero.classList.toggle("artist-collection", isArtist);
+  hero.classList.toggle("artist-collection", isPerson);
   $("#collection-cover").innerHTML = coverMarkup;
-  $("#collection-kicker").textContent = isArtist ? "ARTIST" : `PLAYLIST · ${tracks.length} SONGS`;
+  $("#collection-kicker").textContent = isPerson ? personRole : `PLAYLIST · ${tracks.length} SONGS`;
   $("#collection-title").textContent = name;
   $("#collection-description").textContent = description || `${tracks.length} ${tracks.length === 1 ? "song" : "songs"} in your collection.`;
-  $("#collection-list-title").textContent = isArtist ? "Popular songs" : "Songs in this playlist";
-  $(".playlist-play-button").innerHTML = `Play ${isArtist ? "artist" : "playlist"} <span>▶</span>`;
+  $("#collection-list-title").textContent = isPerson ? "Songs in this collection" : "Songs in this playlist";
+  $(".playlist-play-button").innerHTML = `Play ${isPerson ? "collection" : "playlist"} <span>▶</span>`;
   renderTrackList($("#playlist-track-list"), tracks);
   showView("playlist");
 }
@@ -586,7 +604,7 @@ function renderSearchResults(query = "") {
   const results = normalized ? songs.filter((song) => `${song.title} ${song.artist} ${song.album} ${song.composer} ${song.year} ${song.tags}`.toLowerCase().includes(normalized)) : songs;
   const resultContainer = $("#search-results");
   if (!normalized) {
-    resultContainer.innerHTML = `<p class="search-hint">A few good places to start</p><div class="quick-grid">${songs.slice(0, 6).map((song) => `<button class="quick-card" data-play="${song.id}">${artwork(song)}<span class="quick-card-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span><span class="quick-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></span></button>`).join("")}</div><div class="search-section-heading">ALL SONGS · ${songs.length}</div>${trackMarkup(results)}`;
+    resultContainer.innerHTML = `<p class="search-hint">A few good places to start</p><div class="quick-grid">${songs.slice(0, 6).map((song) => `<button class="quick-card" data-play="${song.id}" title="${escapeHtml(song.title)}">${artwork(song)}<span class="quick-card-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span><span class="quick-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></span></button>`).join("")}</div><div class="search-section-heading">ALL SONGS · ${songs.length}</div>${trackMarkup(results)}`;
   } else if (!results.length) {
     resultContainer.innerHTML = `<p class="search-no-results">No songs found for “${escapeHtml(query.trim())}”. Try a different song or artist.</p>`;
   } else {
@@ -597,21 +615,100 @@ function renderSearchResults(query = "") {
 function trackMarkup(list) {
   return list.map((song) => {
     const liked = favoriteIds.has(song.id);
-    return `<div class="track-row ${currentSong?.id === song.id ? "playing" : ""}" data-track="${song.id}">
-      <span class="track-index">${String(songs.indexOf(song) + 1).padStart(2, "0")}<button class="row-play" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></button></span>
-      <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album" title="Composed by ${escapeHtml(song.composer)}"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
-      <button class="track-like ${liked ? "liked" : ""}" data-like="${song.id}" aria-label="${liked ? "Remove" : "Add"} ${escapeHtml(song.title)} ${liked ? "from" : "to"} liked songs"><svg viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z"/></svg></button><span class="track-duration" data-duration="${song.id}">${song.duration}</span>
+    const songIndex = songs.indexOf(song);
+    const deleteButton = authenticatedRole === "admin" && songIndex >= 10
+      ? `<button class="track-delete" data-delete-song="${escapeHtml(song.id)}" aria-label="Delete ${escapeHtml(song.title)}" title="Delete song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-.9 14H5.9L5 6m4 4v6m6-6v6"/></svg></button>`
+      : "";
+    return `<div class="track-row ${currentSong?.id === song.id ? "playing" : ""}" data-track="${song.id}" title="${escapeHtml(song.title)}">
+      <span class="track-index">${String(songIndex + 1).padStart(2, "0")}<button class="row-play" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></button></span>
+      <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
+      <button class="track-like ${liked ? "liked" : ""}" data-like="${song.id}" aria-label="${liked ? "Remove" : "Add"} ${escapeHtml(song.title)} ${liked ? "from" : "to"} liked songs"><svg viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z"/></svg></button><span class="track-duration" data-duration="${song.id}">${song.duration}</span>${deleteButton}
     </div>`;
   }).join("");
 }
 
+async function deleteSong(id) {
+  if (authenticatedRole !== "admin") return;
+  const songIndex = songs.findIndex((song) => song.id === id);
+  if (songIndex < 10) return;
+
+  const song = songs[songIndex];
+  if (!window.confirm(`Delete “${song.title}” from your library?`)) return;
+
+  try {
+    const { error } = await supabaseClient
+      .from("songs")
+      .delete()
+      .eq("id", song.id);
+    if (error) throw error;
+  } catch (error) {
+    console.error(`Could not delete "${song.title}" from Supabase.`, error);
+    showToast(`Could not delete “${song.title}”. Please try again.`);
+    return;
+  }
+
+  if (currentSong?.id === song.id) {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    stopSongLoading();
+    currentSong = null;
+    currentIndex = -1;
+    $("#player-title").textContent = "Pick a song";
+    $("#player-artist").textContent = "Your collection is waiting";
+    $("#player-cover").className = "cover-art cover-0 player-cover";
+    $("#player-cover").innerHTML = '<span class="cover-number">01</span><span class="cover-sun"></span>';
+    $("#current-time").textContent = "0:00";
+    $("#duration").textContent = "0:00";
+    $("#progress").value = "0";
+    updateProgressFill($("#progress"));
+  } else if (currentIndex > songIndex) {
+    currentIndex -= 1;
+  }
+
+  songs.splice(songIndex, 1);
+  const customSongIndex = customSongs.findIndex((item) => item.id === song.id);
+  if (customSongIndex !== -1) customSongs.splice(customSongIndex, 1);
+  favoriteIds.delete(song.id);
+  playlists.forEach((playlist) => {
+    playlist.songIds = playlist.songIds.filter((songId) => songId !== song.id);
+  });
+  activeCollectionSongs = activeCollectionSongs.filter((item) => item.id !== song.id);
+  saveFavorites();
+
+  let cacheUpdated = true;
+  try {
+    localStorage.setItem("sonder-custom-songs", JSON.stringify(customSongs));
+  } catch (error) {
+    cacheUpdated = false;
+    console.warn("Could not update the local song cache after deleting a song.", error);
+  }
+
+  renderCards();
+  if (!$("#search-view").classList.contains("hidden")) {
+    renderSearchResults($("#search-input").value);
+  }
+  if (!$("#playlist-view").classList.contains("hidden")) {
+    renderTrackList($("#playlist-track-list"), activeCollectionSongs);
+  }
+  updatePlayingRows();
+  setPlayButton(false);
+  showToast(cacheUpdated ? `Deleted “${song.title}”.` : `Deleted “${song.title}”, but this browser couldn't update its local cache.`);
+}
+
 document.addEventListener("click", (event) => {
+  const deleteTarget = event.target.closest("[data-delete-song]");
   const playTarget = event.target.closest("[data-play]");
   const likeTarget = event.target.closest("[data-like]");
   const trackTarget = event.target.closest("[data-track]");
   const playlistTarget = event.target.closest("[data-playlist-id]");
   const artistTarget = event.target.closest("[data-artist]");
+  const personTarget = event.target.closest("[data-person]");
   const viewTarget = event.target.closest("[data-view]");
+  if (deleteTarget) {
+    deleteSong(deleteTarget.dataset.deleteSong);
+    return;
+  }
   if (playTarget) {
     const song = songs.find((item) => item.id === playTarget.dataset.play);
     if (song) playSong(song);
@@ -629,6 +726,15 @@ document.addEventListener("click", (event) => {
   if (artistTarget) {
     const artist = artistTarget.dataset.artist;
     showCollection({ type: "artist", name: artist, tracks: songsForArtist(artist) });
+    return;
+  }
+  if (personTarget) {
+    const musicDirector = personTarget.dataset.person;
+    showCollection({
+      type: "music-director",
+      name: musicDirector,
+      tracks: songsForMusicDirector(musicDirector),
+    });
     return;
   }
   if (trackTarget) {
@@ -700,6 +806,142 @@ $("#playlist-play").addEventListener("click", () => {
 const addSongDialog = $("#add-song-dialog");
 const addSongForm = $("#add-song-form");
 const songFormError = $("#song-form-error");
+const songUrlInput = $("#song-url");
+const metadataLookupStatus = $("#metadata-lookup-status");
+const autoFilledMetadata = { title: "", artist: "", album: "" };
+let metadataLookupTimer;
+let metadataLookupController;
+let pendingMetadataLookup = Promise.resolve();
+let pendingMetadataUrl = "";
+
+function getSongDetailsFromUrl(url) {
+  let filename = new URL(url).pathname.split("/").pop() || "Untitled song";
+
+  try {
+    filename = decodeURIComponent(filename);
+  } catch {
+    filename = "Untitled song";
+  }
+
+  filename = filename.replace(/\.[^.]+$/, "").trim();
+  const artistTitle = filename.match(/^(.+?)(?:\s+-\s+|_-_)(.+)$/);
+  if (artistTitle) {
+    return { title: artistTitle[2].trim(), artist: artistTitle[1].trim() };
+  }
+
+  return { title: filename.replace(/[_-]+/g, " ").trim(), artist: "" };
+}
+
+function setAutoFilledMetadata(field, value) {
+  const input = addSongForm.elements.namedItem(field);
+  if (!value || !(input instanceof HTMLInputElement)) return;
+
+  const currentValue = input.value.trim();
+  if (!currentValue || currentValue === autoFilledMetadata[field]) {
+    input.value = value;
+    autoFilledMetadata[field] = value;
+  }
+}
+
+function normalizeMetadataText(value) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+async function lookupSongMetadata(url) {
+  const { title, artist } = getSongDetailsFromUrl(url);
+  const queryParts = [`recording:"${title.replace(/(["\\])/g, "\\$1")}"`];
+  if (artist) queryParts.push(`artist:"${artist.replace(/(["\\])/g, "\\$1")}"`);
+
+  const params = new URLSearchParams({
+    query: queryParts.join(" AND "),
+    fmt: "json",
+    limit: "10",
+  });
+  const controller = new AbortController();
+  metadataLookupController = controller;
+  metadataLookupStatus.textContent = "Looking up song details on MusicBrainz…";
+
+  try {
+    const response = await fetch(`https://musicbrainz.org/ws/2/recording/?${params}`, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`MusicBrainz returned HTTP ${response.status}.`);
+
+    const data = await response.json();
+    if (songUrlInput.value.trim() !== url) return;
+    const targetTitle = normalizeMetadataText(title);
+    const matchingRecordings = (data.recordings || []).filter((result) =>
+      normalizeMetadataText(result.title || "") === targetTitle &&
+      Number(result.score) >= 80
+    );
+    const recording = matchingRecordings.find((result) => result.releases?.length) || matchingRecordings[0];
+
+    if (!recording) {
+      metadataLookupStatus.textContent = "No matching recording found. The filename is filled in; you can edit the details.";
+      return;
+    }
+
+    const recordingArtist = (recording["artist-credit"] || [])
+      .map((credit) => typeof credit === "string"
+        ? credit
+        : `${credit.name || credit.artist?.name || ""}${credit.joinphrase || ""}`)
+      .join("")
+      .trim();
+    const album = recording.releases?.[0]?.title || "";
+
+    setAutoFilledMetadata("title", recording.title);
+    setAutoFilledMetadata("artist", recordingArtist);
+    setAutoFilledMetadata("album", album);
+    metadataLookupStatus.textContent = "Song details found. Review them before adding.";
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    console.warn("Could not look up song details on MusicBrainz.", error);
+    metadataLookupStatus.textContent = "Metadata lookup is unavailable. The filename is filled in; you can edit the details.";
+  }
+}
+
+songUrlInput.addEventListener("input", () => {
+  clearTimeout(metadataLookupTimer);
+  metadataLookupController?.abort();
+  metadataLookupController = null;
+
+  for (const field of Object.keys(autoFilledMetadata)) {
+    const input = addSongForm.elements.namedItem(field);
+    if (input instanceof HTMLInputElement && input.value.trim() === autoFilledMetadata[field]) {
+      input.value = "";
+    }
+    autoFilledMetadata[field] = "";
+  }
+
+  const url = songUrlInput.value.trim();
+  pendingMetadataUrl = url;
+  if (!isCloudinaryAudioUrl(url)) {
+    pendingMetadataLookup = Promise.resolve();
+    metadataLookupStatus.textContent = "";
+    return;
+  }
+
+  const filenameDetails = getSongDetailsFromUrl(url);
+  setAutoFilledMetadata("title", filenameDetails.title);
+  setAutoFilledMetadata("artist", filenameDetails.artist);
+  metadataLookupStatus.textContent = "Looking up song details on MusicBrainz…";
+  pendingMetadataLookup = new Promise((resolve) => {
+    metadataLookupTimer = setTimeout(() => {
+      lookupSongMetadata(url).finally(resolve);
+    }, 500);
+  });
+});
+
+addSongForm.addEventListener("reset", () => {
+  clearTimeout(metadataLookupTimer);
+  metadataLookupController?.abort();
+  metadataLookupController = null;
+  pendingMetadataLookup = Promise.resolve();
+  pendingMetadataUrl = "";
+  metadataLookupStatus.textContent = "";
+  for (const field of Object.keys(autoFilledMetadata)) autoFilledMetadata[field] = "";
+});
 
 ["#add-song-button", "#mobile-add-song-button"].forEach((selector) => $(selector).addEventListener("click", () => {
   if (authenticatedRole !== "admin") return;
@@ -719,6 +961,11 @@ addSongForm.addEventListener("submit", async (event) => {
   if (authenticatedRole !== "admin") {
     songFormError.textContent = "Only an admin account can add songs.";
     return;
+  }
+
+  const submittedUrl = songUrlInput.value.trim();
+  if (submittedUrl && submittedUrl === pendingMetadataUrl) {
+    await pendingMetadataLookup;
   }
 
   const formData = new FormData(addSongForm);
@@ -742,15 +989,7 @@ addSongForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  let filename = new URL(url).pathname.split("/").pop() || "Untitled song";
-
-  try {
-    filename = decodeURIComponent(filename);
-  } catch {
-    filename = "Untitled song";
-  }
-
-  filename = filename.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+  const filename = getSongDetailsFromUrl(url).title;
 
   const title =
     String(formData.get("title") || "").trim() || filename || "Untitled song";
