@@ -8,12 +8,39 @@
   <meta name="description" content="A little corner of the internet for the songs you love." />
   <title>Dancing Monkey — music for the in-between</title>
   <link rel="preconnect" href="https://res.cloudinary.com" />
-  <link rel="stylesheet" href="styles.css?v=4" />
-  <script src="app.js?v=4" defer></script>
+  <link rel="stylesheet" href="styles.css?v=6" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js?v=2" defer></script>
+  <script src="app.js?v=6" defer></script>
 </head>
 
 <body>
-  <div class="app-shell">
+  <main class="auth-screen" id="auth-screen" aria-labelledby="auth-title">
+    <section class="auth-card">
+      <a class="brand auth-brand" href="#" aria-label="Dancing Monkey home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Dancing Monkey</span>
+      </a>
+      <div class="section-kicker">YOUR MUSIC, YOUR MOMENT</div>
+      <h1 id="auth-title">Come on<br /><em>in.</em></h1>
+      <p class="auth-description">Sign in to settle into your listening room.</p>
+      <div class="auth-roles" aria-label="Account roles">
+        <div><span class="role-mark" aria-hidden="true">♫</span><span><strong>Listener</strong><small>Listen to the collection</small></span></div>
+        <div><span class="role-mark" aria-hidden="true">✳</span><span><strong>Admin</strong><small>Manage the listening room</small></span></div>
+      </div>
+      <form class="auth-form" id="auth-form">
+        <label for="auth-email">Email address</label>
+        <input id="auth-email" name="email" type="email" autocomplete="username" required />
+        <label for="auth-password">Password</label>
+        <input id="auth-password" name="password" type="password" autocomplete="current-password" required />
+        <p class="auth-status" id="auth-status" role="status" aria-live="polite"></p>
+        <button class="hero-play auth-submit" id="auth-submit" type="submit">Sign in <span aria-hidden="true">↗</span></button>
+      </form>
+      <p class="auth-footnote">Accounts are provided by the administrator.</p>
+    </section>
+  </main>
+
+  <div class="app-shell" id="app-shell" hidden>
     <aside class="sidebar" aria-label="Main navigation">
       <a class="brand" href="#" aria-label="Dancing Monkey home">
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -103,10 +130,10 @@
           </button>
           <button class="upgrade-button" id="about-button"><span class="upgrade-sparkle">✳</span> Made for your
             mood</button>
-          <button class="profile-button" aria-label="Your profile"><span
-              class="profile-avatar">s</span><span>Listener</span><svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="m7 10 5 5 5-5" />
-            </svg></button>
+          <span class="profile-button account-control" aria-label="Signed in as">
+            <span class="profile-avatar" id="role-avatar">L</span><span id="account-role">Listener</span>
+          </span>
+          <button class="profile-button sign-out-button" id="sign-out-button" type="button">Sign out</button>
         </div>
       </header>
 
@@ -239,7 +266,7 @@
       </section>
     </main>
 
-    <section class="now-playing" aria-label="Music player">
+    <section class="now-playing" id="now-playing" aria-label="Music player" hidden>
       <div class="player-track">
         <div class="player-cover cover-art cover-0" id="player-cover"><span class="cover-number">01</span><span
             class="cover-sun"></span></div>
