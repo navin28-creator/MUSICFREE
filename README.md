@@ -1,4 +1,4 @@
-# Dancing Monkey
+# only music
 
 ## Supabase sign-in setup
 
@@ -21,4 +21,4 @@ The app uses Supabase Auth for email/password sign-in. Create accounts in the Su
 4. Put the project URL and **publishable/anon key** in [`supabase-config.js`](./supabase-config.js). Never put a `service_role` key in browser code.
 5. Serve the app over HTTP or HTTPS and sign in with one of the dashboard-created accounts.
 
-The profile table allows signed-in users to read only their own role. Role changes are restricted to trusted Supabase administration. The current song list and additions still use browser `localStorage`; this sign-in change does not sync songs between browsers or devices. Admin-only song controls are currently a browser UI restriction; enforce song write permissions with RLS when song storage is moved to Supabase.
+The profile table allows signed-in users to read only their own role. Role changes are restricted to trusted Supabase administration. Song additions and deletions are available only in the admin UI, but that client-side check is not an authorization boundary. Configure row-level security policies on `public.songs` to restrict writes and deletes to admins. The browser also caches songs in `localStorage`.
