@@ -26,6 +26,134 @@ let toastTimer;
 let loadingAnimationSongId = null;
 let loadingAnimationStartedAt = 0;
 let loadingAnimationHideTimer;
+let supabaseClient = null;
+let authenticatedRole = null;
+let authGeneration = 0;
+
+function showAuthScreen(message = "") {
+  authGeneration += 1;
+  authenticatedRole = null;
+  $("#auth-screen").hidden = false;
+  $("#app-shell").hidden = true;
+  $("#now-playing").hidden = true;
+  $("#auth-status").textContent = message;
+  $("#auth-submit").disabled = !supabaseClient;
+  $("#add-song-button").hidden = true;
+  $("#mobile-add-song-button").hidden = true;
+  audio.pause();
+}
+
+async function activateSession(user) {
+  const generation = ++authGeneration;
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  if (generation !== authGeneration) return;
+  if (error) {
+    throw new Error(`Could not verify this account's role: ${error.message}`);
+  }
+  if (!data || !["listener", "admin"].includes(data.role)) {
+    throw new Error("This account has no valid role. Ask the administrator to check its access.");
+  }
+
+  
+authenticatedRole = data.role;
+
+try {
+  await loadRemoteSongs();
+} catch (error) {
+  console.error("Could not load the remote song library.", error);
+  showToast("Couldn't sync songs. Please check your Supabase setup.");
+}
+
+const isAdmin = authenticatedRole === "admin";
+
+  $("#account-role").textContent = isAdmin ? "Admin" : "Listener";
+  $("#role-avatar").textContent = isAdmin ? "A" : "L";
+  $("#add-song-button").hidden = !isAdmin;
+  $("#mobile-add-song-button").hidden = !isAdmin;
+  $("#auth-screen").hidden = true;
+  $("#app-shell").hidden = false;
+  $("#now-playing").hidden = false;
+}
+
+async function initializeAuthentication() {
+  const authForm = $("#auth-form");
+  const authStatus = $("#auth-status");
+  const submitButton = $("#auth-submit");
+
+  authForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!supabaseClient) return;
+
+    submitButton.disabled = true;
+    authStatus.textContent = "Signing in…";
+    const formData = new FormData(authForm);
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: String(formData.get("email") || "").trim(),
+        password: String(formData.get("password") || ""),
+      });
+      if (error) throw error;
+      await activateSession(data.user);
+    } catch (error) {
+      console.error("Could not sign in.", error);
+      showAuthScreen(error.message || "Sign in failed. Please try again.");
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+
+  $("#sign-out-button").addEventListener("click", async () => {
+    try {
+      const { error } = await supabaseClient.auth.signOut();
+      if (error) throw error;
+      showAuthScreen();
+    } catch (error) {
+      console.error("Could not sign out.", error);
+      showToast("Could not sign out. Please try again.");
+    }
+  });
+
+  const config = window.SUPABASE_CONFIG;
+  if (!window.supabase?.createClient) {
+    showAuthScreen("The Supabase client could not load. Check your connection and reload the page.");
+    return;
+  }
+  if (!config?.url || !config?.anonKey) {
+    showAuthScreen("Add your Supabase project URL and public anon key in supabase-config.js to enable sign in.");
+    return;
+  }
+
+  try {
+    supabaseClient = window.supabase.createClient(config.url, config.anonKey);
+  } catch (error) {
+    console.error("Could not initialize Supabase.", error);
+    showAuthScreen("Supabase could not be initialized. Check the project URL and public key in supabase-config.js.");
+    return;
+  }
+  supabaseClient.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_OUT") showAuthScreen();
+  });
+
+  authStatus.textContent = "Checking your sign-in…";
+  submitButton.disabled = true;
+  try {
+    const { data, error } = await supabaseClient.auth.getSession();
+    if (error) throw error;
+    if (data.session) {
+      await activateSession(data.session.user);
+    } else {
+      showAuthScreen();
+    }
+  } catch (error) {
+    console.error("Could not restore or verify the sign-in session.", error);
+    showAuthScreen(error.message || "Could not verify this account's role.");
+  }
+}
 
 function loadCustomSongs() {
   try {
@@ -60,6 +188,111 @@ function loadCustomSongs() {
   }
 }
 
+
+function songToDatabaseRow(song) {
+  return {
+    id: song.id,
+    title: song.title,
+    artist: song.artist,
+    album: song.album || "Your uploads",
+    composer: song.composer || song.artist,
+    year: song.year || new Date().getFullYear(),
+    url: song.url,
+    cover_url: song.coverUrl || "",
+    gradient: song.gradient ?? 0,
+    duration: song.duration || "—:—",
+    tags: song.tags || "added song",
+  };
+}
+
+function songFromDatabase(row, index) {
+  return {
+    id: row.id,
+    title: row.title,
+    artist: row.artist,
+    album: row.album || "Your uploads",
+    composer: row.composer || row.artist,
+    year: row.year || new Date().getFullYear(),
+    url: row.url,
+    coverUrl: row.cover_url || "",
+    gradient: Number.isInteger(row.gradient) ? row.gradient : (9 + index) % 9,
+    duration: row.duration || "—:—",
+    tags: row.tags || "added song",
+  };
+}
+
+async function loadRemoteSongs() {
+  if (!supabaseClient) return;
+
+  // Admins can migrate songs previously saved in this browser.
+  if (authenticatedRole === "admin" && customSongs.length) {
+    const localRows = customSongs.map(songToDatabaseRow);
+
+    const { error: migrationError } = await supabaseClient
+      .from("songs")
+      .upsert(localRows, { onConflict: "id" });
+
+    if (migrationError) {
+      throw new Error(
+        `Could not migrate your saved songs: ${migrationError.message}`
+      );
+    }
+  }
+
+  // Retrieve songs shared through Supabase.
+  const { data, error } = await supabaseClient
+    .from("songs")
+    .select("*")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(`Could not load songs from Supabase: ${error.message}`);
+  }
+
+  const remoteSongs = (data || []).map(songFromDatabase);
+
+  // Preserve browser-only songs until they have been migrated.
+  const mergedSongs = new Map();
+  remoteSongs.forEach(song => mergedSongs.set(song.id, song));
+  customSongs.forEach(song => {
+    if (!mergedSongs.has(song.id)) mergedSongs.set(song.id, song);
+  });
+
+  const finalCustomSongs = [...mergedSongs.values()];
+
+  // Replace custom songs without touching your built-in songs.
+  songs.splice(
+    0,
+    songs.length,
+    ...songs.filter(song => !song.id.startsWith("custom-")),
+    ...finalCustomSongs
+  );
+
+  customSongs.splice(0, customSongs.length, ...finalCustomSongs);
+
+  // Keep the main playlist synchronized with the current library.
+  playlists[0].songIds = songs.map(song => song.id);
+
+  // Save the migration result locally only after a successful admin migration.
+  if (authenticatedRole === "admin" && data) {
+    try {
+      localStorage.setItem(
+        "sonder-custom-songs",
+        JSON.stringify(finalCustomSongs)
+      );
+    } catch (storageError) {
+      console.warn("Could not update the local song cache.", storageError);
+    }
+  }
+
+  renderCards();
+
+  if (!$("#search-view").classList.contains("hidden")) {
+    renderSearchResults($("#search-input").value);
+  }
+}
+
+
 function isCloudinaryAudioUrl(value) {
   try {
     const url = new URL(value);
@@ -84,15 +317,22 @@ function isCloudinaryImageUrl(value) {
   }
 }
 
+
 function loadFavorites() {
   try {
-    const stored = JSON.parse(localStorage.getItem("sonder-favorites") || "[]");
-    return Array.isArray(stored) ? stored.filter((id) => songs.some((song) => song.id === id)) : [];
+    const stored = JSON.parse(
+      localStorage.getItem("sonder-favorites") || "[]"
+    );
+
+    return Array.isArray(stored)
+      ? stored.filter((id) => typeof id === "string")
+      : [];
   } catch (error) {
     console.warn("Could not load saved songs from local storage.", error);
     return [];
   }
 }
+
 
 function saveFavorites() {
   try {
@@ -462,6 +702,7 @@ const addSongForm = $("#add-song-form");
 const songFormError = $("#song-form-error");
 
 ["#add-song-button", "#mobile-add-song-button"].forEach((selector) => $(selector).addEventListener("click", () => {
+  if (authenticatedRole !== "admin") return;
   songFormError.textContent = "";
   addSongDialog.showModal();
   $("#song-url").focus();
@@ -470,35 +711,52 @@ $$("[data-close-dialog]").forEach((button) => button.addEventListener("click", (
 addSongDialog.addEventListener("click", (event) => {
   if (event.target === addSongDialog) addSongDialog.close();
 });
-addSongForm.addEventListener("submit", (event) => {
+
+addSongForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   songFormError.textContent = "";
+
+  if (authenticatedRole !== "admin") {
+    songFormError.textContent = "Only an admin account can add songs.";
+    return;
+  }
 
   const formData = new FormData(addSongForm);
   const url = String(formData.get("url") || "").trim();
   const coverUrl = String(formData.get("coverUrl") || "").trim();
+
   if (!isCloudinaryAudioUrl(url)) {
-    songFormError.textContent = "Enter a secure Cloudinary audio URL ending in a supported audio format, such as .mp3.";
+    songFormError.textContent =
+      "Enter a secure Cloudinary audio URL ending in a supported audio format, such as .mp3.";
     return;
   }
+
   if (coverUrl && !isCloudinaryImageUrl(coverUrl)) {
-    songFormError.textContent = "Cover art must be a secure Cloudinary image URL ending in .jpg, .png, .webp, or another supported image format.";
+    songFormError.textContent =
+      "Cover art must be a secure Cloudinary image URL.";
     return;
   }
-  if (songs.some((song) => song.url === url)) {
+
+  if (songs.some(song => song.url === url)) {
     songFormError.textContent = "That song is already in your library.";
     return;
   }
 
   let filename = new URL(url).pathname.split("/").pop() || "Untitled song";
+
   try {
     filename = decodeURIComponent(filename);
   } catch {
     filename = "Untitled song";
   }
+
   filename = filename.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
-  const title = String(formData.get("title") || "").trim() || filename || "Untitled song";
-  const artist = String(formData.get("artist") || "").trim() || "Unknown artist";
+
+  const title =
+    String(formData.get("title") || "").trim() || filename || "Untitled song";
+  const artist =
+    String(formData.get("artist") || "").trim() || "Unknown artist";
+
   const song = {
     id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title,
@@ -512,29 +770,56 @@ addSongForm.addEventListener("submit", (event) => {
     duration: "—:—",
     tags: "added song",
   };
-  const updatedCustomSongs = [...customSongs, song];
-  try {
-    localStorage.setItem("sonder-custom-songs", JSON.stringify(updatedCustomSongs));
-  } catch (error) {
-    console.error("Could not save the added song to local storage.", error);
-    songFormError.textContent = "This browser couldn't save the song. Check available storage and try again.";
-    return;
-  }
 
-  customSongs.push(song);
-  songs.push(song);
-  playlists[0].songIds.push(song.id);
-  renderCards();
-  if (!$("#search-view").classList.contains("hidden")) renderSearchResults($("#search-input").value);
-  addSongForm.reset();
-  addSongDialog.close();
-  showToast(`Added “${song.title}” to your library.`);
-  showView("home");
-  setTimeout(() => {
-    const addedTrack = $(`#track-list [data-track="${CSS.escape(song.id)}"]`);
-    addedTrack?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, 50);
+  const addButton = addSongForm.querySelector('[type="submit"]');
+  if (addButton) addButton.disabled = true;
+
+  try {
+    const { error } = await supabaseClient
+      .from("songs")
+      .insert(songToDatabaseRow(song));
+
+    if (error) throw error;
+
+    customSongs.push(song);
+    songs.push(song);
+    playlists[0].songIds.push(song.id);
+
+    try {
+      localStorage.setItem(
+        "sonder-custom-songs",
+        JSON.stringify(customSongs)
+      );
+    } catch (storageError) {
+      console.warn("Could not cache the song locally.", storageError);
+    }
+
+    renderCards();
+
+    if (!$("#search-view").classList.contains("hidden")) {
+      renderSearchResults($("#search-input").value);
+    }
+
+    addSongForm.reset();
+    addSongDialog.close();
+    showToast(`Added “${song.title}” to your library.`);
+    showView("home");
+
+    setTimeout(() => {
+      const addedTrack = $(
+        `#track-list [data-track="${CSS.escape(song.id)}"]`
+      );
+      addedTrack?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+  } catch (error) {
+    console.error("Could not save song to Supabase.", error);
+    songFormError.textContent =
+      `Could not save the song: ${error.message || "Please try again."}`;
+  } finally {
+    if (addButton) addButton.disabled = false;
+  }
 });
+
 $("#about-button").addEventListener("click", () => showToast("A little listening room, made just for you."));
 $("#go-back").addEventListener("click", () => {
   if (!$("#search-view").classList.contains("hidden")) showView("home");
@@ -648,3 +933,4 @@ audio.volume = Number($("#volume").value) / 100;
 updateProgressFill($("#volume"));
 updateProgressFill($("#progress"));
 renderCards();
+initializeAuthentication();
