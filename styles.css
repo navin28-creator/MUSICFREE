@@ -1012,7 +1012,7 @@ svg {
 .track-table-labels,
 .track-row {
   display: grid;
-  grid-template-columns: 28px minmax(150px, 2.2fr) minmax(100px, 1.3fr) 31px 45px 30px;
+  grid-template-columns: 28px minmax(150px, 2.2fr) minmax(100px, 1.3fr) 31px 45px 58px;
   align-items: center;
   column-gap: 12px;
 }
@@ -1161,6 +1161,14 @@ svg {
   text-align: right;
 }
 
+.track-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.track-edit,
 .track-delete {
   width: 26px;
   height: 26px;
@@ -1172,12 +1180,19 @@ svg {
   color: #999a90;
 }
 
+.track-edit:hover,
+.track-edit:focus-visible {
+  background: rgba(204, 223, 133, .12);
+  color: var(--lime);
+}
+
 .track-delete:hover,
 .track-delete:focus-visible {
   background: rgba(241, 115, 100, .12);
   color: #f17364;
 }
 
+.track-edit svg,
 .track-delete svg {
   width: 14px;
   height: 14px;
@@ -1858,7 +1873,7 @@ input[type="range"] {
 
   .track-table-labels,
   .track-row {
-    grid-template-columns: 24px minmax(120px, 2fr) minmax(70px, 1fr) 25px 37px 28px;
+    grid-template-columns: 24px minmax(120px, 2fr) minmax(70px, 1fr) 25px 37px 54px;
     column-gap: 7px;
   }
 
@@ -1973,7 +1988,7 @@ input[type="range"] {
 
   .track-table-labels,
   .track-row {
-    grid-template-columns: 20px minmax(100px, 1fr) 34px 28px;
+    grid-template-columns: 20px minmax(100px, 1fr) 30px 48px;
     column-gap: 6px;
   }
 
@@ -1988,6 +2003,16 @@ input[type="range"] {
 
   .track-row .track-like {
     display: none;
+  }
+
+  .track-actions {
+    gap: 1px;
+  }
+
+  .track-edit,
+  .track-delete {
+    width: 22px;
+    height: 24px;
   }
 
   .track-title-cell {
@@ -2794,7 +2819,7 @@ input[type="range"] {
 
 .track-table-labels,
 .track-row {
-  grid-template-columns: 28px minmax(150px, 2.2fr) minmax(100px, 1.3fr) 31px 45px 30px;
+  grid-template-columns: 28px minmax(150px, 2.2fr) minmax(100px, 1.3fr) 31px 45px 58px;
   column-gap: 14px;
 }
 
@@ -3628,5 +3653,28 @@ input[type="range"] {
   .sign-out-button {
     padding: 0 9px;
     font-size: 9px;
+  }
+
+  .track-table-labels,
+  .track-row {
+    grid-template-columns: 20px minmax(100px, 1fr) 30px 48px;
+    column-gap: 6px;
+  }
+
+  .track-table-labels span:nth-child(3),
+  .track-album,
+  .track-table-labels span:nth-child(4),
+  .track-row .track-like {
+    display: none;
+  }
+
+  .track-actions {
+    gap: 1px;
+  }
+
+  .track-edit,
+  .track-delete {
+    width: 22px;
+    height: 24px;
   }
 }
