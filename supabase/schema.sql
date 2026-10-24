@@ -35,3 +35,63 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+create table if not exists public.song_changes (
+  song_id text primary key,
+  title text,
+  artist text,
+  album text,
+  composer text,
+  year integer,
+  cover_url text,
+  tags text,
+  is_deleted boolean not null default false
+);
+
+alter table public.song_changes enable row level security;
+
+revoke all on table public.song_changes from anon, authenticated;
+grant select, insert, update on table public.song_changes to authenticated;
+
+drop policy if exists "Authenticated users can read song changes" on public.song_changes;
+create policy "Authenticated users can read song changes"
+  on public.song_changes
+  for select
+  to authenticated
+  using (true);
+
+drop policy if exists "Admins can insert song changes" on public.song_changes;
+create policy "Admins can insert song changes"
+  on public.song_changes
+  for insert
+  to authenticated
+  with check (
+    exists (
+      select 1
+      from public.profiles
+      where id = (select auth.uid())
+        and role = 'admin'
+    )
+  );
+
+drop policy if exists "Admins can update song changes" on public.song_changes;
+create policy "Admins can update song changes"
+  on public.song_changes
+  for update
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.profiles
+      where id = (select auth.uid())
+        and role = 'admin'
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.profiles
+      where id = (select auth.uid())
+        and role = 'admin'
+    )
+  );

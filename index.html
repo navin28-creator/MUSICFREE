@@ -8,10 +8,10 @@
   <meta name="description" content="only music — your personal listening room for every mood." />
   <title>only music — your personal listening room</title>
   <link rel="preconnect" href="https://res.cloudinary.com" />
-  <link rel="stylesheet" href="styles.css?v=6" />
+  <link rel="stylesheet" href="styles.css?v=7" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabase-config.js?v=2" defer></script>
-  <script src="app.js?v=6" defer></script>
+  <script src="app.js?v=7" defer></script>
 </head>
 
 <body>
@@ -315,40 +315,48 @@
       </div>
     </section>
     <audio id="audio" preload="metadata"></audio>
-    <dialog class="add-song-dialog" id="add-song-dialog" aria-labelledby="add-song-title">
+    <dialog class="add-song-dialog" id="add-song-dialog" aria-labelledby="song-form-title">
       <form id="add-song-form">
         <div class="dialog-heading">
           <div>
             <div class="section-kicker">GROW YOUR COLLECTION</div>
-            <h2 id="add-song-title">Add a song</h2>
+            <h2 id="song-form-title">Add a song</h2>
           </div>
           <button class="icon-button dialog-close" type="button" data-close-dialog aria-label="Close add song form"><svg
               viewBox="0 0 24 24">
               <path d="m6 6 12 12M18 6 6 18" />
             </svg></button>
         </div>
-        <p class="dialog-description">Paste a Cloudinary audio link to look up its title, artist, and album. You can
+        <p class="dialog-description" id="song-form-description">Paste a Cloudinary audio link to look up its title, artist, and album. You can
           review or edit the details before adding it.</p>
-        <label class="song-form-label" for="song-url">Cloudinary audio URL <span>REQUIRED</span></label>
+        <label class="song-form-label" id="song-url-label" for="song-url">Cloudinary audio URL <span>REQUIRED</span></label>
         <input class="song-form-input" id="song-url" name="url" type="url"
           placeholder="https://res.cloudinary.com/…/video/upload/…mp3" required autocomplete="url" />
         <p class="song-metadata-status" id="metadata-lookup-status" role="status" aria-live="polite"></p>
         <div class="song-form-row">
           <label class="song-form-field"><span class="song-form-label">Song title</span><input class="song-form-input"
-              name="title" maxlength="100" placeholder="From filename if blank" /></label>
+              id="song-title" name="title" maxlength="100" placeholder="From filename if blank" /></label>
           <label class="song-form-field"><span class="song-form-label">Artist</span><input class="song-form-input"
               name="artist" maxlength="100" placeholder="Unknown artist" /></label>
         </div>
         <label class="song-form-field"><span class="song-form-label">Album <span>OPTIONAL</span></span><input
             class="song-form-input" name="album" maxlength="100" placeholder="Your uploads" /></label>
+        <div class="song-form-row">
+          <label class="song-form-field"><span class="song-form-label">Composer</span><input class="song-form-input"
+              name="composer" maxlength="100" placeholder="Composer or music director" /></label>
+          <label class="song-form-field"><span class="song-form-label">Year</span><input class="song-form-input"
+              name="year" type="number" min="1" max="9999" step="1" /></label>
+        </div>
+        <label class="song-form-field"><span class="song-form-label">Tags <span>OPTIONAL</span></span><input
+            class="song-form-input" name="tags" maxlength="200" placeholder="Genres, mood, or keywords" /></label>
         <label class="song-form-field"><span class="song-form-label">Cover art URL <span>OPTIONAL · CLOUDINARY
               IMAGE</span></span><input class="song-form-input" name="coverUrl" type="url"
             placeholder="https://res.cloudinary.com/…/image/upload/…jpg" /></label>
         <p class="song-form-error" id="song-form-error" role="alert"></p>
         <div class="dialog-actions"><button class="dialog-cancel" type="button" data-close-dialog>Cancel</button><button
-            class="hero-play dialog-submit" type="submit"><span class="play-triangle">＋</span> Add to library</button>
+            class="hero-play dialog-submit" id="song-form-submit" type="submit"><span class="play-triangle">＋</span> Add to library</button>
         </div>
-        <p class="dialog-footnote">Songs are saved in this browser and can be played from your library.</p>
+        <p class="dialog-footnote">Song information changes are shared with everyone in the library.</p>
       </form>
     </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

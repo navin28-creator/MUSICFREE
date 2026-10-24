@@ -29,6 +29,7 @@ let loadingAnimationHideTimer;
 let supabaseClient = null;
 let authenticatedRole = null;
 let authGeneration = 0;
+let editingSongId = null;
 
 function showAuthScreen(message = "") {
   authGeneration += 1;
@@ -55,18 +56,22 @@ async function activateSession(user) {
   if (error) {
     throw new Error(`Could not verify this account's role: ${error.message}`);
   }
-  if (!data || !["listener", "admin"].includes(data.role)) {
+  const role = typeof data?.role === "string" ? data.role.trim().toLowerCase() : "";
+  if (!["listener", "admin"].includes(role)) {
     throw new Error("This account has no valid role. Ask the administrator to check its access.");
   }
 
-  
-authenticatedRole = data.role;
+  authenticatedRole = role;
 
 try {
   await loadRemoteSongs();
 } catch (error) {
   console.error("Could not load the remote song library.", error);
-  showToast("Couldn't sync songs. Please check your Supabase setup.");
+  showToast(`Couldn't sync songs: ${error.message || "Please check your Supabase setup."}`);
+  renderCards();
+  if (!$("#search-view").classList.contains("hidden")) {
+    renderSearchResults($("#search-input").value);
+  }
 }
 
 const isAdmin = authenticatedRole === "admin";
@@ -129,7 +134,9 @@ async function initializeAuthentication() {
   }
 
   try {
-    supabaseClient = window.supabase.createClient(config.url, config.anonKey);
+    supabaseClient = window.supabase.createClient(config.url, config.anonKey, {
+      auth: { persistSession: false },
+    });
   } catch (error) {
     console.error("Could not initialize Supabase.", error);
     showAuthScreen("Supabase could not be initialized. Check the project URL and public key in supabase-config.js.");
@@ -221,6 +228,19 @@ function songFromDatabase(row, index) {
   };
 }
 
+function songFromChange(song, change) {
+  return {
+    ...song,
+    title: change.title ?? song.title,
+    artist: change.artist ?? song.artist,
+    album: change.album ?? song.album,
+    composer: change.composer ?? song.composer,
+    year: change.year ?? song.year,
+    coverUrl: change.cover_url ?? song.coverUrl,
+    tags: change.tags ?? song.tags,
+  };
+}
+
 async function loadRemoteSongs() {
   if (!supabaseClient) return;
 
@@ -240,16 +260,21 @@ async function loadRemoteSongs() {
   }
 
   // Retrieve songs shared through Supabase.
-  const { data, error } = await supabaseClient
-    .from("songs")
-    .select("*")
-    .order("created_at", { ascending: true });
+  const [songsResult, changesResult] = await Promise.all([
+    supabaseClient
+      .from("songs")
+      .select("*")
+      .order("created_at", { ascending: true }),
+    supabaseClient.from("song_changes").select("*"),
+  ]);
 
-  if (error) {
-    throw new Error(`Could not load songs from Supabase: ${error.message}`);
+  if (songsResult.error) {
+    throw new Error(`Could not load songs from Supabase: ${songsResult.error.message}`);
   }
-
-  const remoteSongs = (data || []).map(songFromDatabase);
+  if (changesResult.error) {
+    throw new Error(`Could not load shared song edits: ${changesResult.error.message}`);
+  }
+  const remoteSongs = (songsResult.data || []).map(songFromDatabase);
 
   // Preserve browser-only songs until they have been migrated.
   const mergedSongs = new Map();
@@ -258,27 +283,34 @@ async function loadRemoteSongs() {
     if (!mergedSongs.has(song.id)) mergedSongs.set(song.id, song);
   });
 
+  const changes = new Map((changesResult.data || []).map((change) => [change.song_id, change]));
+  const allSongs = new Map(
+    songs.filter((song) => !song.id.startsWith("custom-")).map((song) => [song.id, song])
+  );
   const finalCustomSongs = [...mergedSongs.values()];
 
-  // Replace custom songs without touching your built-in songs.
-  songs.splice(
-    0,
-    songs.length,
-    ...songs.filter(song => !song.id.startsWith("custom-")),
-    ...finalCustomSongs
-  );
+  finalCustomSongs.forEach((song) => allSongs.set(song.id, song));
+  const finalSongs = [...allSongs.values()].flatMap((song) => {
+    const change = changes.get(song.id);
+    return change?.is_deleted ? [] : [change ? songFromChange(song, change) : song];
+  });
+  songs.splice(0, songs.length, ...finalSongs);
 
-  customSongs.splice(0, customSongs.length, ...finalCustomSongs);
+  customSongs.splice(
+    0,
+    customSongs.length,
+    ...finalSongs.filter((song) => song.id.startsWith("custom-"))
+  );
 
   // Keep the main playlist synchronized with the current library.
   playlists[0].songIds = songs.map(song => song.id);
 
   // Save the migration result locally only after a successful admin migration.
-  if (authenticatedRole === "admin" && data) {
+  if (authenticatedRole === "admin" && songsResult.data) {
     try {
       localStorage.setItem(
         "sonder-custom-songs",
-        JSON.stringify(finalCustomSongs)
+        JSON.stringify(customSongs)
       );
     } catch (storageError) {
       console.warn("Could not update the local song cache.", storageError);
@@ -616,30 +648,73 @@ function trackMarkup(list) {
   return list.map((song) => {
     const liked = favoriteIds.has(song.id);
     const songIndex = songs.indexOf(song);
-    const deleteButton = authenticatedRole === "admin" && songIndex >= 10
-      ? `<button class="track-delete" data-delete-song="${escapeHtml(song.id)}" aria-label="Delete ${escapeHtml(song.title)}" title="Delete song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-.9 14H5.9L5 6m4 4v6m6-6v6"/></svg></button>`
+    const songActions = authenticatedRole === "admin"
+      ? `<span class="track-actions"><button class="track-edit" data-edit-song="${escapeHtml(song.id)}" aria-label="Edit information for ${escapeHtml(song.title)}" title="Edit song information"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 5 3 3M4 20l4.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L4 20Z"/></svg></button><button class="track-delete" data-delete-song="${escapeHtml(song.id)}" aria-label="Delete ${escapeHtml(song.title)}" title="Delete song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-.9 14H5.9L5 6m4 4v6m6-6v6"/></svg></button></span>`
       : "";
     return `<div class="track-row ${currentSong?.id === song.id ? "playing" : ""}" data-track="${song.id}" title="${escapeHtml(song.title)}">
       <span class="track-index">${String(songIndex + 1).padStart(2, "0")}<button class="row-play" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></button></span>
       <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
-      <button class="track-like ${liked ? "liked" : ""}" data-like="${song.id}" aria-label="${liked ? "Remove" : "Add"} ${escapeHtml(song.title)} ${liked ? "from" : "to"} liked songs"><svg viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z"/></svg></button><span class="track-duration" data-duration="${song.id}">${song.duration}</span>${deleteButton}
+      <button class="track-like ${liked ? "liked" : ""}" data-like="${song.id}" aria-label="${liked ? "Remove" : "Add"} ${escapeHtml(song.title)} ${liked ? "from" : "to"} liked songs"><svg viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z"/></svg></button><span class="track-duration" data-duration="${song.id}">${song.duration}</span>${songActions}
     </div>`;
   }).join("");
+}
+
+function songChangeToDatabaseRow(song) {
+  return {
+    song_id: song.id,
+    title: song.title,
+    artist: song.artist,
+    album: song.album,
+    composer: song.composer,
+    year: song.year,
+    cover_url: song.coverUrl,
+    tags: song.tags,
+    is_deleted: false,
+  };
+}
+
+function updateSongCache() {
+  try {
+    localStorage.setItem("sonder-custom-songs", JSON.stringify(customSongs));
+  } catch (error) {
+    console.warn("Could not update the local song cache.", error);
+  }
+}
+
+function renderSongChanges() {
+  renderCards();
+  if (!$("#search-view").classList.contains("hidden")) {
+    renderSearchResults($("#search-input").value);
+  }
+  if (!$("#playlist-view").classList.contains("hidden")) {
+    renderTrackList($("#playlist-track-list"), activeCollectionSongs);
+  }
+}
+
+async function editSong(id) {
+  if (authenticatedRole !== "admin") return;
+  const song = songs.find((item) => item.id === id);
+  if (!song) return;
+
+  songFormError.textContent = "";
+  setSongFormMode(song);
+  addSongDialog.showModal();
+  $("#song-title").focus();
 }
 
 async function deleteSong(id) {
   if (authenticatedRole !== "admin") return;
   const songIndex = songs.findIndex((song) => song.id === id);
-  if (songIndex < 10) return;
+  if (songIndex === -1) return;
 
   const song = songs[songIndex];
   if (!window.confirm(`Delete “${song.title}” from your library?`)) return;
 
   try {
-    const { error } = await supabaseClient
-      .from("songs")
-      .delete()
-      .eq("id", song.id);
+    const { error } = await supabaseClient.from("song_changes").upsert({
+      song_id: song.id,
+      is_deleted: true,
+    }, { onConflict: "song_id" });
     if (error) throw error;
   } catch (error) {
     console.error(`Could not delete "${song.title}" from Supabase.`, error);
@@ -676,28 +751,16 @@ async function deleteSong(id) {
   activeCollectionSongs = activeCollectionSongs.filter((item) => item.id !== song.id);
   saveFavorites();
 
-  let cacheUpdated = true;
-  try {
-    localStorage.setItem("sonder-custom-songs", JSON.stringify(customSongs));
-  } catch (error) {
-    cacheUpdated = false;
-    console.warn("Could not update the local song cache after deleting a song.", error);
-  }
-
-  renderCards();
-  if (!$("#search-view").classList.contains("hidden")) {
-    renderSearchResults($("#search-input").value);
-  }
-  if (!$("#playlist-view").classList.contains("hidden")) {
-    renderTrackList($("#playlist-track-list"), activeCollectionSongs);
-  }
+  updateSongCache();
+  renderSongChanges();
   updatePlayingRows();
   setPlayButton(false);
-  showToast(cacheUpdated ? `Deleted “${song.title}”.` : `Deleted “${song.title}”, but this browser couldn't update its local cache.`);
+  showToast(`Deleted “${song.title}”.`);
 }
 
 document.addEventListener("click", (event) => {
   const deleteTarget = event.target.closest("[data-delete-song]");
+  const editTarget = event.target.closest("[data-edit-song]");
   const playTarget = event.target.closest("[data-play]");
   const likeTarget = event.target.closest("[data-like]");
   const trackTarget = event.target.closest("[data-track]");
@@ -707,6 +770,10 @@ document.addEventListener("click", (event) => {
   const viewTarget = event.target.closest("[data-view]");
   if (deleteTarget) {
     deleteSong(deleteTarget.dataset.deleteSong);
+    return;
+  }
+  if (editTarget) {
+    editSong(editTarget.dataset.editSong);
     return;
   }
   if (playTarget) {
@@ -808,6 +875,10 @@ const addSongForm = $("#add-song-form");
 const songFormError = $("#song-form-error");
 const songUrlInput = $("#song-url");
 const metadataLookupStatus = $("#metadata-lookup-status");
+const songUrlLabel = $("#song-url-label");
+const songFormSubmit = $("#song-form-submit");
+const songFormTitle = $("#song-form-title");
+const songFormDescription = $("#song-form-description");
 const autoFilledMetadata = { title: "", artist: "", album: "" };
 let metadataLookupTimer;
 let metadataLookupController;
@@ -943,9 +1014,40 @@ addSongForm.addEventListener("reset", () => {
   for (const field of Object.keys(autoFilledMetadata)) autoFilledMetadata[field] = "";
 });
 
+function setSongFormMode(song = null) {
+  addSongForm.reset();
+  editingSongId = song?.id || null;
+  const editing = !!song;
+  songUrlInput.disabled = editing;
+  songUrlInput.required = !editing;
+  songUrlLabel.hidden = editing;
+  songUrlInput.hidden = editing;
+  metadataLookupStatus.hidden = editing;
+  songFormTitle.textContent = editing ? "Edit song information" : "Add a song";
+  songFormDescription.textContent = editing
+    ? "Update this song's title, artist, album, composer, year, tags, or cover art."
+    : "Paste a Cloudinary audio link to look up its title, artist, and album. You can review or edit the details before adding it.";
+  songFormSubmit.textContent = editing ? "Save changes" : "Add to library";
+
+  if (!song) return;
+
+  for (const [field, value] of Object.entries({
+    title: song.title,
+    artist: song.artist,
+    album: song.album,
+    composer: song.composer,
+    year: song.year,
+    tags: song.tags,
+    coverUrl: song.coverUrl,
+  })) {
+    addSongForm.elements.namedItem(field).value = value ?? "";
+  }
+}
+
 ["#add-song-button", "#mobile-add-song-button"].forEach((selector) => $(selector).addEventListener("click", () => {
   if (authenticatedRole !== "admin") return;
   songFormError.textContent = "";
+  setSongFormMode();
   addSongDialog.showModal();
   $("#song-url").focus();
 }));
@@ -953,109 +1055,121 @@ $$("[data-close-dialog]").forEach((button) => button.addEventListener("click", (
 addSongDialog.addEventListener("click", (event) => {
   if (event.target === addSongDialog) addSongDialog.close();
 });
+addSongDialog.addEventListener("close", () => setSongFormMode());
 
 addSongForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   songFormError.textContent = "";
 
   if (authenticatedRole !== "admin") {
-    songFormError.textContent = "Only an admin account can add songs.";
+    songFormError.textContent = "Only an admin account can change songs.";
     return;
   }
 
-  const submittedUrl = songUrlInput.value.trim();
-  if (submittedUrl && submittedUrl === pendingMetadataUrl) {
-    await pendingMetadataLookup;
-  }
-
-  const formData = new FormData(addSongForm);
+  let formData = new FormData(addSongForm);
   const url = String(formData.get("url") || "").trim();
   const coverUrl = String(formData.get("coverUrl") || "").trim();
-
-  if (!isCloudinaryAudioUrl(url)) {
-    songFormError.textContent =
-      "Enter a secure Cloudinary audio URL ending in a supported audio format, such as .mp3.";
-    return;
-  }
-
   if (coverUrl && !isCloudinaryImageUrl(coverUrl)) {
     songFormError.textContent =
       "Cover art must be a secure Cloudinary image URL.";
     return;
   }
 
-  if (songs.some(song => song.url === url)) {
-    songFormError.textContent = "That song is already in your library.";
-    return;
-  }
-
-  const filename = getSongDetailsFromUrl(url).title;
-
-  const title =
-    String(formData.get("title") || "").trim() || filename || "Untitled song";
-  const artist =
-    String(formData.get("artist") || "").trim() || "Unknown artist";
-
-  const song = {
-    id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    title,
-    artist,
-    album: String(formData.get("album") || "").trim() || "Your uploads",
-    composer: artist,
-    coverUrl,
-    year: new Date().getFullYear(),
-    url,
-    gradient: (9 + customSongs.length) % 9,
-    duration: "—:—",
-    tags: "added song",
-  };
-
-  const addButton = addSongForm.querySelector('[type="submit"]');
-  if (addButton) addButton.disabled = true;
+  const submitButton = addSongForm.querySelector('[type="submit"]');
+  if (submitButton) submitButton.disabled = true;
 
   try {
-    const { error } = await supabaseClient
-      .from("songs")
-      .insert(songToDatabaseRow(song));
+    if (editingSongId) {
+      const song = songs.find((item) => item.id === editingSongId);
+      if (!song) throw new Error("This song is no longer in the library. Reload and try again.");
+      const title = String(formData.get("title") || "").trim();
+      const artist = String(formData.get("artist") || "").trim();
+      if (!title || !artist) throw new Error("Enter both a song title and artist.");
 
-    if (error) throw error;
+      const yearInput = String(formData.get("year") || "").trim();
+      const year = yearInput ? Number(yearInput) : song.year;
+      if (!Number.isInteger(year) || year < 1 || year > 9999) {
+        throw new Error("Enter a valid year.");
+      }
+      const updatedSong = {
+        ...song,
+        title,
+        artist,
+        album: String(formData.get("album") || "").trim(),
+        composer: String(formData.get("composer") || "").trim() || artist,
+        year,
+        tags: String(formData.get("tags") || "").trim(),
+        coverUrl,
+      };
+      const { error } = await supabaseClient
+        .from("song_changes")
+        .upsert(songChangeToDatabaseRow(updatedSong), { onConflict: "song_id" });
+      if (error) throw error;
 
-    customSongs.push(song);
-    songs.push(song);
-    playlists[0].songIds.push(song.id);
+      Object.assign(song, updatedSong);
+      updateSongCache();
+      if (currentSong?.id === song.id) {
+        $("#player-title").textContent = song.title;
+        $("#player-artist").textContent = `${song.artist} · ${song.album}`;
+        const playerCover = $("#player-cover");
+        playerCover.className = `cover-art cover-${song.gradient}${song.coverUrl ? " has-cover" : ""} player-cover`;
+        playerCover.innerHTML = `${song.coverUrl ? `<img class="cover-image" src="${escapeHtml(song.coverUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span class="cover-number">${String(song.gradient + 1).padStart(2, "0")}</span><span class="cover-sun"></span><span class="cover-title">${escapeHtml(song.title)}</span>`;
+      }
+      renderSongChanges();
+      addSongDialog.close();
+      showToast(`Updated “${song.title}”.`);
+    } else {
+      const submittedUrl = songUrlInput.value.trim();
+      if (submittedUrl && submittedUrl === pendingMetadataUrl) {
+        await pendingMetadataLookup;
+        formData = new FormData(addSongForm);
+      }
+      if (!isCloudinaryAudioUrl(url)) {
+        throw new Error("Enter a secure Cloudinary audio URL ending in a supported audio format, such as .mp3.");
+      }
+      if (songs.some((song) => song.url === url)) {
+        throw new Error("That song is already in your library.");
+      }
+      const filename = getSongDetailsFromUrl(url).title;
+      const title = String(formData.get("title") || "").trim() || filename || "Untitled song";
+      const artist = String(formData.get("artist") || "").trim() || "Unknown artist";
+      const song = {
+        id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        title,
+        artist,
+        album: String(formData.get("album") || "").trim() || "Your uploads",
+        composer: String(formData.get("composer") || "").trim() || artist,
+        coverUrl,
+        year: Number(formData.get("year")) || new Date().getFullYear(),
+        url,
+        gradient: (9 + customSongs.length) % 9,
+        duration: "—:—",
+        tags: String(formData.get("tags") || "").trim() || "added song",
+      };
+      const { error } = await supabaseClient
+        .from("songs")
+        .insert(songToDatabaseRow(song));
+      if (error) throw error;
 
-    try {
-      localStorage.setItem(
-        "sonder-custom-songs",
-        JSON.stringify(customSongs)
-      );
-    } catch (storageError) {
-      console.warn("Could not cache the song locally.", storageError);
+      customSongs.push(song);
+      songs.push(song);
+      playlists[0].songIds.push(song.id);
+      updateSongCache();
+      renderSongChanges();
+      addSongForm.reset();
+      addSongDialog.close();
+      showToast(`Added “${song.title}” to your library.`);
+      showView("home");
+      setTimeout(() => {
+        const addedTrack = $(`#track-list [data-track="${CSS.escape(song.id)}"]`);
+        addedTrack?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
     }
-
-    renderCards();
-
-    if (!$("#search-view").classList.contains("hidden")) {
-      renderSearchResults($("#search-input").value);
-    }
-
-    addSongForm.reset();
-    addSongDialog.close();
-    showToast(`Added “${song.title}” to your library.`);
-    showView("home");
-
-    setTimeout(() => {
-      const addedTrack = $(
-        `#track-list [data-track="${CSS.escape(song.id)}"]`
-      );
-      addedTrack?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 50);
   } catch (error) {
-    console.error("Could not save song to Supabase.", error);
-    songFormError.textContent =
-      `Could not save the song: ${error.message || "Please try again."}`;
+    console.error("Could not save the song change.", error);
+    songFormError.textContent = error.message || "Please try again.";
   } finally {
-    if (addButton) addButton.disabled = false;
+    if (submitButton) submitButton.disabled = false;
   }
 });
 
