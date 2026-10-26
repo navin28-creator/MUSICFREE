@@ -29,11 +29,17 @@ let loadingAnimationHideTimer;
 let supabaseClient = null;
 let authenticatedRole = null;
 let authGeneration = 0;
+let authenticatedUserId = null;
+let activatingUserId = null;
+let authInitializationStarted = false;
+let authSubscription = null;
 let editingSongId = null;
 
 function showAuthScreen(message = "") {
   authGeneration += 1;
   authenticatedRole = null;
+  authenticatedUserId = null;
+  activatingUserId = null;
   $("#auth-screen").hidden = false;
   $("#app-shell").hidden = true;
   $("#now-playing").hidden = true;
@@ -45,78 +51,142 @@ function showAuthScreen(message = "") {
 }
 
 async function activateSession(user) {
+  if (authenticatedUserId === user.id && !$("#auth-screen").hidden) return;
+  if (activatingUserId === user.id) return;
+
   const generation = ++authGeneration;
-  const { data, error } = await supabaseClient
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  activatingUserId = user.id;
+  try {
+    const { data, error } = await supabaseClient
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
 
-  if (generation !== authGeneration) return;
-  if (error) {
-    throw new Error(`Could not verify this account's role: ${error.message}`);
+    if (generation !== authGeneration) return;
+    if (error) {
+      throw new Error(`Could not verify this account's role: ${error.message}`);
+    }
+    const role = typeof data?.role === "string" ? data.role.trim().toLowerCase() : "";
+    if (!["listener", "admin"].includes(role)) {
+      throw new Error("This account has no valid role. Ask the administrator to check its access.");
+    }
+
+    authenticatedRole = role;
+
+    try {
+      await loadRemoteSongs();
+    } catch (error) {
+      console.error("Could not load the remote song library.", error);
+      showToast(`Couldn't sync songs: ${error.message || "Please check your Supabase setup."}`);
+      renderCards();
+      if (!$("#search-view").classList.contains("hidden")) {
+        renderSearchResults($("#search-input").value);
+      }
+    }
+
+    if (generation !== authGeneration) return;
+
+    const isAdmin = authenticatedRole === "admin";
+
+    $("#account-role").textContent = isAdmin ? "Admin" : "Listener";
+    $("#role-avatar").textContent = isAdmin ? "A" : "L";
+    $("#add-song-button").hidden = !isAdmin;
+    $("#mobile-add-song-button").hidden = !isAdmin;
+    authenticatedUserId = user.id;
+    $("#auth-screen").hidden = true;
+    $("#app-shell").hidden = false;
+    $("#now-playing").hidden = false;
+  } finally {
+    if (generation === authGeneration) activatingUserId = null;
   }
-  const role = typeof data?.role === "string" ? data.role.trim().toLowerCase() : "";
-  if (!["listener", "admin"].includes(role)) {
-    throw new Error("This account has no valid role. Ask the administrator to check its access.");
-  }
-
-  authenticatedRole = role;
-
-try {
-  await loadRemoteSongs();
-} catch (error) {
-  console.error("Could not load the remote song library.", error);
-  showToast(`Couldn't sync songs: ${error.message || "Please check your Supabase setup."}`);
-  renderCards();
-  if (!$("#search-view").classList.contains("hidden")) {
-    renderSearchResults($("#search-input").value);
-  }
-}
-
-const isAdmin = authenticatedRole === "admin";
-
-  $("#account-role").textContent = isAdmin ? "Admin" : "Listener";
-  $("#role-avatar").textContent = isAdmin ? "A" : "L";
-  $("#add-song-button").hidden = !isAdmin;
-  $("#mobile-add-song-button").hidden = !isAdmin;
-  $("#auth-screen").hidden = true;
-  $("#app-shell").hidden = false;
-  $("#now-playing").hidden = false;
 }
 
 async function initializeAuthentication() {
+  if (authInitializationStarted) return;
+  authInitializationStarted = true;
+
   const authForm = $("#auth-form");
   const authStatus = $("#auth-status");
   const submitButton = $("#auth-submit");
 
-  authForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!supabaseClient) return;
+  
+const rememberMeCheckbox = $("#remember-me");
+const REMEMBER_ME_KEY = "only-music-remember-me";
 
-    submitButton.disabled = true;
-    authStatus.textContent = "Signing in…";
-    const formData = new FormData(authForm);
-    try {
-      const { data, error } = await supabaseClient.auth.signInWithPassword({
-        email: String(formData.get("email") || "").trim(),
-        password: String(formData.get("password") || ""),
-      });
-      if (error) throw error;
-      await activateSession(data.user);
-    } catch (error) {
-      console.error("Could not sign in.", error);
-      showAuthScreen(error.message || "Sign in failed. Please try again.");
-    } finally {
+// Restore the user's preference, not their password.
+rememberMeCheckbox.checked =
+  localStorage.getItem(REMEMBER_ME_KEY) === "true";
+
+// Supabase chooses storage dynamically based on the user's choice.
+const authStorage = {
+  getItem(key) {
+    if (localStorage.getItem(REMEMBER_ME_KEY) === "true") {
+      return localStorage.getItem(key);
+    }
+
+    // Ignore and clear stale persistent sessions when Remember me is off.
+    localStorage.removeItem(key);
+    return sessionStorage.getItem(key);
+  },
+
+  setItem(key, value) {
+    if (localStorage.getItem(REMEMBER_ME_KEY) === "true") {
+      localStorage.setItem(key, value);
+      sessionStorage.removeItem(key);
+    } else {
+      sessionStorage.setItem(key, value);
+      localStorage.removeItem(key);
+    }
+  },
+
+  removeItem(key) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  },
+};
+
+
+ 
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!supabaseClient) return;
+
+  submitButton.disabled = true;
+  authStatus.textContent = "Signing in…";
+
+  const rememberMe = rememberMeCheckbox.checked;
+  const formData = new FormData(authForm);
+
+  try {
+    if (rememberMe) {
+      localStorage.setItem(REMEMBER_ME_KEY, "true");
+    } else {
+      localStorage.removeItem(REMEMBER_ME_KEY);
+    }
+
+    // Remove any old session stored in the other storage location.
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email: String(formData.get("email") || "").trim(),
+      password: String(formData.get("password") || ""),
+    });
+
+    if (error) throw error;
+  } catch (error) {
+    console.error("Could not sign in.", error);
+    showAuthScreen(error.message || "Sign in failed. Please try again.");
+  } finally {
+    if (authStatus.textContent === "Signing in…") {
       submitButton.disabled = false;
     }
-  });
+  }
+});
+
 
   $("#sign-out-button").addEventListener("click", async () => {
     try {
       const { error } = await supabaseClient.auth.signOut();
       if (error) throw error;
-      showAuthScreen();
     } catch (error) {
       console.error("Could not sign out.", error);
       showToast("Could not sign out. Please try again.");
@@ -134,17 +204,40 @@ async function initializeAuthentication() {
   }
 
   try {
-    supabaseClient = window.supabase.createClient(config.url, config.anonKey, {
-      auth: { persistSession: false },
-    });
+    
+supabaseClient = window.supabase.createClient(config.url, config.anonKey, {
+  auth: {
+    persistSession: true,
+    storage: authStorage,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+});
+
   } catch (error) {
     console.error("Could not initialize Supabase.", error);
     showAuthScreen("Supabase could not be initialized. Check the project URL and public key in supabase-config.js.");
     return;
   }
-  supabaseClient.auth.onAuthStateChange((event) => {
-    if (event === "SIGNED_OUT") showAuthScreen();
-  });
+  if (!authSubscription) {
+    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        showAuthScreen();
+        return;
+      }
+      if (event !== "SIGNED_IN" || !session) return;
+
+      authStatus.textContent = "Checking your sign-in…";
+      submitButton.disabled = true;
+      window.setTimeout(() => {
+        activateSession(session.user).catch((error) => {
+          console.error("Could not restore or verify the sign-in session.", error);
+          showAuthScreen(error.message || "Could not verify this account's role.");
+        });
+      }, 0);
+    });
+    authSubscription = subscription;
+  }
 
   authStatus.textContent = "Checking your sign-in…";
   submitButton.disabled = true;
@@ -272,7 +365,8 @@ async function loadRemoteSongs() {
     throw new Error(`Could not load songs from Supabase: ${songsResult.error.message}`);
   }
   if (changesResult.error) {
-    throw new Error(`Could not load shared song edits: ${changesResult.error.message}`);
+    console.error("Could not load shared song edits from Supabase.", changesResult.error);
+    showToast(`Couldn't load shared song edits: ${changesResult.error.message}`);
   }
   const remoteSongs = (songsResult.data || []).map(songFromDatabase);
 
@@ -284,6 +378,9 @@ async function loadRemoteSongs() {
   });
 
   const changes = new Map((changesResult.data || []).map((change) => [change.song_id, change]));
+  Object.entries(loadLocalSongChanges()).forEach(([songId, change]) => {
+    changes.set(songId, change);
+  });
   const allSongs = new Map(
     songs.filter((song) => !song.id.startsWith("custom-")).map((song) => [song.id, song])
   );
@@ -335,6 +432,30 @@ function isCloudinaryAudioUrl(value) {
   } catch {
     return false;
   }
+}
+
+function downloadSong(song) {
+  if (!song || !isCloudinaryAudioUrl(song.url)) {
+    showToast("Pick a song with a valid audio link before downloading.");
+    return;
+  }
+
+  const url = new URL(song.url);
+  const extension = /\.([a-z0-9]+)$/i.exec(url.pathname)?.[1] || "mp3";
+  const title = song.title.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "song";
+  const fileName = `${title}.${extension}`;
+  url.pathname = url.pathname.replace(
+    "/video/upload/",
+    `/video/upload/fl_attachment:${fileName}/`
+  );
+
+  const link = document.createElement("a");
+  link.href = url.href;
+  link.download = fileName;
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 function isCloudinaryImageUrl(value) {
@@ -653,7 +774,7 @@ function trackMarkup(list) {
       : "";
     return `<div class="track-row ${currentSong?.id === song.id ? "playing" : ""}" data-track="${song.id}" title="${escapeHtml(song.title)}">
       <span class="track-index">${String(songIndex + 1).padStart(2, "0")}<button class="row-play" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></button></span>
-      <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
+      <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album" title="${escapeHtml(song.title)}"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
       <button class="track-like ${liked ? "liked" : ""}" data-like="${song.id}" aria-label="${liked ? "Remove" : "Add"} ${escapeHtml(song.title)} ${liked ? "from" : "to"} liked songs"><svg viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z"/></svg></button><span class="track-duration" data-duration="${song.id}">${song.duration}</span>${songActions}
     </div>`;
   }).join("");
@@ -671,6 +792,32 @@ function songChangeToDatabaseRow(song) {
     tags: song.tags,
     is_deleted: false,
   };
+}
+
+function loadLocalSongChanges() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("sonder-song-changes") || "{}");
+    return stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  } catch (error) {
+    console.warn("Could not load locally saved song changes.", error);
+    return {};
+  }
+}
+
+function saveLocalSongChange(change) {
+  const changes = loadLocalSongChanges();
+  changes[change.song_id] = change;
+  localStorage.setItem("sonder-song-changes", JSON.stringify(changes));
+}
+
+function removeLocalSongChange(songId) {
+  const changes = loadLocalSongChanges();
+  delete changes[songId];
+  if (Object.keys(changes).length) {
+    localStorage.setItem("sonder-song-changes", JSON.stringify(changes));
+  } else {
+    localStorage.removeItem("sonder-song-changes");
+  }
 }
 
 function updateSongCache() {
@@ -710,16 +857,35 @@ async function deleteSong(id) {
   const song = songs[songIndex];
   if (!window.confirm(`Delete “${song.title}” from your library?`)) return;
 
+  const deletion = { song_id: song.id, is_deleted: true };
+  let syncError = null;
   try {
-    const { error } = await supabaseClient.from("song_changes").upsert({
-      song_id: song.id,
-      is_deleted: true,
-    }, { onConflict: "song_id" });
+    const { error } = await supabaseClient
+      .from("song_changes")
+      .upsert(deletion, { onConflict: "song_id" });
     if (error) throw error;
   } catch (error) {
-    console.error(`Could not delete "${song.title}" from Supabase.`, error);
-    showToast(`Could not delete “${song.title}”. Please try again.`);
-    return;
+    syncError = error;
+    console.error(`Could not sync deletion of "${song.title}".`, error);
+    try {
+      saveLocalSongChange(deletion);
+    } catch (storageError) {
+      console.error(`Could not save deletion of "${song.title}" on this device.`, storageError);
+      showToast(`Could not delete “${song.title}”: shared sync and local save both failed.`);
+      return;
+    }
+  }
+  if (!syncError) {
+    try {
+      removeLocalSongChange(song.id);
+    } catch (error) {
+      console.warn("The song deletion synced, but its local backup could not be cleared.", error);
+      try {
+        saveLocalSongChange(deletion);
+      } catch (storageError) {
+        console.warn("Could not preserve the synced song deletion locally.", storageError);
+      }
+    }
   }
 
   if (currentSong?.id === song.id) {
@@ -755,7 +921,9 @@ async function deleteSong(id) {
   renderSongChanges();
   updatePlayingRows();
   setPlayButton(false);
-  showToast(`Deleted “${song.title}”.`);
+  showToast(syncError
+    ? `Deleted on this device; shared sync failed: ${syncError.message || "Please try again."}`
+    : `Deleted “${song.title}”.`);
 }
 
 document.addEventListener("click", (event) => {
@@ -852,6 +1020,7 @@ $("#previous-button").addEventListener("click", () => {
   if (audio.currentTime > 3) audio.currentTime = 0;
   else playNext(-1);
 });
+$("#download-button").addEventListener("click", () => downloadSong(currentSong));
 $("#shuffle-button").addEventListener("click", () => {
   shuffleEnabled = !shuffleEnabled;
   $("#shuffle-button").classList.toggle("toggled", shuffleEnabled);
@@ -1052,8 +1221,25 @@ function setSongFormMode(song = null) {
   $("#song-url").focus();
 }));
 $$("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => addSongDialog.close()));
+let backdropPointerDown = false;
+let backdropPointerUp = false;
 addSongDialog.addEventListener("click", (event) => {
-  if (event.target === addSongDialog) addSongDialog.close();
+  if (event.target === addSongDialog && backdropPointerDown && backdropPointerUp) {
+    addSongDialog.close();
+  }
+  backdropPointerDown = false;
+  backdropPointerUp = false;
+});
+addSongDialog.addEventListener("pointerdown", (event) => {
+  backdropPointerDown = event.target === addSongDialog;
+  backdropPointerUp = false;
+});
+addSongDialog.addEventListener("pointerup", (event) => {
+  backdropPointerUp = backdropPointerDown && event.target === addSongDialog;
+});
+addSongDialog.addEventListener("pointercancel", () => {
+  backdropPointerDown = false;
+  backdropPointerUp = false;
 });
 addSongDialog.addEventListener("close", () => setSongFormMode());
 
@@ -1101,10 +1287,17 @@ addSongForm.addEventListener("submit", async (event) => {
         tags: String(formData.get("tags") || "").trim(),
         coverUrl,
       };
+      const change = songChangeToDatabaseRow(updatedSong);
       const { error } = await supabaseClient
         .from("song_changes")
-        .upsert(songChangeToDatabaseRow(updatedSong), { onConflict: "song_id" });
+        .upsert(change, { onConflict: "song_id" });
       if (error) throw error;
+
+      try {
+        removeLocalSongChange(song.id);
+      } catch (error) {
+        console.warn("The song change synced, but its local backup could not be cleared.", error);
+      }
 
       Object.assign(song, updatedSong);
       updateSongCache();

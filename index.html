@@ -25,16 +25,31 @@
       <h1 id="auth-title">Come on<br /><em>in.</em></h1>
       <p class="auth-description">Sign in to settle into your listening room.</p>
       <div class="auth-roles" aria-label="Account roles">
-        <div><span class="role-mark" aria-hidden="true">♫</span><span><strong>Listener</strong><small>Listen to the collection</small></span></div>
-        <div><span class="role-mark" aria-hidden="true">✳</span><span><strong>Admin</strong><small>Manage the listening room</small></span></div>
+        <div><span class="role-mark" aria-hidden="true">♫</span><span><strong>Listener</strong><small>Listen to the
+              collection</small></span></div>
+        <div><span class="role-mark" aria-hidden="true">✳</span><span><strong>Admin</strong><small>Manage the listening
+              room</small></span></div>
       </div>
+
       <form class="auth-form" id="auth-form">
         <label for="auth-email">Email address</label>
         <input id="auth-email" name="email" type="email" autocomplete="username" required />
+
         <label for="auth-password">Password</label>
         <input id="auth-password" name="password" type="password" autocomplete="current-password" required />
+
+        <label class="remember-me" for="remember-me">
+          <input id="remember-me" name="rememberMe" type="checkbox" value="yes" />
+          <span>Remember me on this device</span>
+        </label>
+
         <p class="auth-status" id="auth-status" role="status" aria-live="polite"></p>
-        <button class="hero-play auth-submit" id="auth-submit" type="submit">Sign in <span aria-hidden="true">↗</span></button>
+
+        <button class="hero-play auth-submit" id="auth-submit" type="submit">
+          Sign in <span aria-hidden="true">↗</span>
+        </button>
+      </form>
+
       </form>
       <p class="auth-footnote">Accounts are provided by the administrator.</p>
     </section>
@@ -189,13 +204,15 @@
             </div>
             <div class="track-table-wrap">
               <div class="track-table-labels">
-                <span>#</span><span>Title</span><span>Album</span><span>♡</span><span>TIME</span><span></span></div>
+                <span>#</span><span>Title</span><span>Album</span><span>♡</span><span>TIME</span><span></span>
+              </div>
               <div id="track-list" class="track-list"></div>
             </div>
           </section>
 
           <footer class="page-footer"><span class="footer-symbol">✳</span> Made of music &amp; a little bit of magic
-            <span>·</span> <span id="footer-year"></span></footer>
+            <span>·</span> <span id="footer-year"></span>
+          </footer>
         </div>
 
         <div id="search-view" class="page-view hidden">
@@ -296,8 +313,8 @@
           <button class="icon-button control-button" id="next-button" aria-label="Next song"><svg viewBox="0 0 24 24">
               <path d="M18 5v14M5 5l11 7-11 7z" />
             </svg></button>
-          <button class="icon-button control-button subtle-control toggled" id="repeat-button" aria-label="Repeat all"><svg
-              viewBox="0 0 24 24">
+          <button class="icon-button control-button subtle-control toggled" id="repeat-button"
+            aria-label="Repeat all"><svg viewBox="0 0 24 24">
               <path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-3v2a3 3 0 0 1-3 3H3" />
             </svg></button>
         </div>
@@ -305,6 +322,10 @@
             min="0" max="1000" value="0" aria-label="Track progress" /><span id="duration">0:00</span></div>
       </div>
       <div class="player-extras">
+        <button class="icon-button download-button" id="download-button" aria-label="Download current song"
+          title="Download current song"><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12m0 0 5-5m-5 5-5-5M4 17v3h16v-3" />
+          </svg></button>
         <button class="icon-button queue-button" aria-label="Queue" title="Your collection"><svg viewBox="0 0 24 24">
             <path d="M4 6h16M4 12h12M4 18h8" />
           </svg><span class="queue-badge"></span></button>
@@ -327,9 +348,11 @@
               <path d="m6 6 12 12M18 6 6 18" />
             </svg></button>
         </div>
-        <p class="dialog-description" id="song-form-description">Paste a Cloudinary audio link to look up its title, artist, and album. You can
+        <p class="dialog-description" id="song-form-description">Paste a Cloudinary audio link to look up its title,
+          artist, and album. You can
           review or edit the details before adding it.</p>
-        <label class="song-form-label" id="song-url-label" for="song-url">Cloudinary audio URL <span>REQUIRED</span></label>
+        <label class="song-form-label" id="song-url-label" for="song-url">Cloudinary audio URL
+          <span>REQUIRED</span></label>
         <input class="song-form-input" id="song-url" name="url" type="url"
           placeholder="https://res.cloudinary.com/…/video/upload/…mp3" required autocomplete="url" />
         <p class="song-metadata-status" id="metadata-lookup-status" role="status" aria-live="polite"></p>
@@ -354,7 +377,8 @@
             placeholder="https://res.cloudinary.com/…/image/upload/…jpg" /></label>
         <p class="song-form-error" id="song-form-error" role="alert"></p>
         <div class="dialog-actions"><button class="dialog-cancel" type="button" data-close-dialog>Cancel</button><button
-            class="hero-play dialog-submit" id="song-form-submit" type="submit"><span class="play-triangle">＋</span> Add to library</button>
+            class="hero-play dialog-submit" id="song-form-submit" type="submit"><span class="play-triangle">＋</span> Add
+            to library</button>
         </div>
         <p class="dialog-footnote">Song information changes are shared with everyone in the library.</p>
       </form>

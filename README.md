@@ -2,7 +2,7 @@
 
 ## Supabase sign-in setup
 
-The app uses Supabase Auth for email/password sign-in. Create accounts in the Supabase dashboard; public sign-up is not included. Disable public sign-ups in Supabase Auth settings. New profiles receive the `listener` role by default. Sign-in is required each time the app is opened; the session is kept only in memory and is not restored after a reload or browser restart.
+The app uses Supabase Auth for email/password sign-in. Create accounts in the Supabase dashboard; public sign-up is not included. Disable public sign-ups in Supabase Auth settings. New profiles receive the `listener` role by default. Supabase sessions are persisted in the browser and restored after a normal page reload; signing out clears the session.
 
 1. Create a Supabase project and run [`supabase/schema.sql`](./supabase/schema.sql) in its SQL Editor. If the project is already set up, run it again to create the shared song-change table.
 2. Create the Listener and Admin users in the dashboard's **Authentication → Users** page.
