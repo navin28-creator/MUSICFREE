@@ -1458,6 +1458,13 @@ input[type="range"] {
   height: 25px;
 }
 
+.download-button,
+.queue-button {
+  width: 25px;
+  height: 25px;
+}
+
+.download-button svg,
 .queue-button svg,
 .volume-icon {
   width: 16px;
@@ -1828,7 +1835,7 @@ input[type="range"] {
     left: 8px;
     height: 67px;
     padding: 0 12px;
-    grid-template-columns: minmax(110px, 1fr) minmax(150px, 1.25fr) 35px;
+    grid-template-columns: minmax(110px, 1fr) minmax(150px, 1.25fr) 58px;
   }
 
   .player-cover {
@@ -2038,7 +2045,7 @@ input[type="range"] {
   }
 
   .now-playing {
-    grid-template-columns: minmax(95px, 1fr) minmax(133px, 1.3fr) 23px;
+    grid-template-columns: minmax(95px, 1fr) minmax(133px, 1.3fr) 46px;
     padding: 0 9px;
   }
 
@@ -3092,7 +3099,7 @@ input[type="range"] {
   }
 
   .now-playing {
-    grid-template-columns: minmax(95px, 1fr) minmax(133px, 1.3fr) 23px;
+    grid-template-columns: minmax(95px, 1fr) minmax(133px, 1.3fr) 46px;
   }
 }
 
@@ -3568,6 +3575,24 @@ input[type="range"] {
   font-weight: 600;
 }
 
+.remember-me {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 2px 0 5px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.remember-me input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--lime);
+  cursor: pointer;
+}
+
 .auth-form input {
   width: 100%;
   min-height: 41px;
@@ -3677,4 +3702,37 @@ input[type="range"] {
     width: 22px;
     height: 24px;
   }
+}
+
+/* Remember me row */
+.auth-form label.remember-me {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* Override the normal text-input styling */
+.auth-form input[type="checkbox"] {
+  appearance: auto;
+  -webkit-appearance: checkbox;
+  width: 17px;
+  min-width: 17px;
+  height: 17px;
+  min-height: 17px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 17px;
+  accent-color: var(--lime);
+  cursor: pointer;
+}
+
+/* Keep the label text tidy */
+.remember-me span {
+  display: inline;
+  line-height: 1.4;
 }
