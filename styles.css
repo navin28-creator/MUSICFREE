@@ -2875,7 +2875,7 @@ input[type="range"] {
   font-size: 9px;
 }
 
-.track-row:hover .track-album strong {
+.track-row:not(.playing):hover .track-title-copy strong {
   color: #fff;
 }
 
@@ -3301,7 +3301,7 @@ input[type="range"] {
 :root[data-theme="light"] .nav-link.active,
 :root[data-theme="light"] .library-label:hover,
 :root[data-theme="light"] .text-button:hover,
-:root[data-theme="light"] .track-row:hover .track-album strong,
+:root[data-theme="light"] .track-row:not(.playing):hover .track-title-copy strong,
 :root[data-theme="light"] .player-song-copy span:hover {
   color: var(--text);
 }
