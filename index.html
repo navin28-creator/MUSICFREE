@@ -185,6 +185,8 @@
             <div class="hero-index">NO. 001 <span>—</span> YOUR PERSONAL MIX</div>
           </section>
 
+          <p class="song-metadata-status" id="id3-metadata-status" role="status" aria-live="polite"></p>
+
           <section class="quick-picks-section">
             <div class="section-heading">
               <div>
@@ -369,6 +371,11 @@
         <input class="song-form-input" id="song-url" name="url" type="url"
           placeholder="https://res.cloudinary.com/…/video/upload/…mp3" required autocomplete="url" />
         <p class="song-metadata-status" id="metadata-lookup-status" role="status" aria-live="polite"></p>
+        <label class="song-form-field" id="embedded-art-field"><span class="song-form-label">Get cover from MP3
+            <span>OPTIONAL</span></span><input class="song-form-input" id="embedded-art-file" name="embeddedArtFile"
+            type="file" accept=".mp3,audio/mpeg" /><small>Select the original MP3 file. Its embedded artwork is read
+            on this device and uploaded as the cover when you add the song.</small></label>
+        <p class="song-metadata-status" id="embedded-art-status" role="status" aria-live="polite"></p>
         <div class="song-form-row">
           <label class="song-form-field"><span class="song-form-label">Song title</span><input class="song-form-input"
               id="song-title" name="title" maxlength="100" placeholder="From filename if blank" /></label>
