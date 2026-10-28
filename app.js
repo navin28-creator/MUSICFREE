@@ -73,6 +73,8 @@ async function activateSession(user) {
     }
 
     authenticatedRole = role;
+    authenticatedUserId = user.id;
+    loadCreatedPlaylists(user.id);
 
     try {
       await loadRemoteSongs();
@@ -271,7 +273,7 @@ function loadCustomSongs() {
       (!song.coverUrl || isCloudinaryImageUrl(song.coverUrl))
     ).map((song, index) => ({
       id: song.id,
-      title: song.title,
+      title: resolveSongTitle(song.title, song.url),
       artist: song.artist,
       album: song.album,
       composer: typeof song.composer === "string" ? song.composer : song.artist,
@@ -292,7 +294,7 @@ function loadCustomSongs() {
 function songToDatabaseRow(song) {
   return {
     id: song.id,
-    title: song.title,
+    title: resolveSongTitle(song.title, song.url),
     artist: song.artist,
     album: song.album || "Your uploads",
     composer: song.composer || song.artist,
@@ -308,7 +310,7 @@ function songToDatabaseRow(song) {
 function songFromDatabase(row, index) {
   return {
     id: row.id,
-    title: row.title,
+    title: resolveSongTitle(row.title, row.url),
     artist: row.artist,
     album: row.album || "Your uploads",
     composer: row.composer || row.artist,
@@ -324,7 +326,7 @@ function songFromDatabase(row, index) {
 function songFromChange(song, change) {
   return {
     ...song,
-    title: change.title ?? song.title,
+    title: resolveSongTitle(change.title ?? song.title, song.url),
     artist: change.artist ?? song.artist,
     album: change.album ?? song.album,
     composer: change.composer ?? song.composer,
@@ -399,8 +401,9 @@ async function loadRemoteSongs() {
     ...finalSongs.filter((song) => song.id.startsWith("custom-"))
   );
 
-  // Keep the main playlist synchronized with the current library.
-  playlists[0].songIds = songs.map(song => song.id);
+  // Keep the main playlist synchronized with the current library when it exists.
+  const mainPlaylist = playlists.find((playlist) => playlist.id === "mix");
+  if (mainPlaylist) mainPlaylist.songIds = songs.map((song) => song.id);
 
   // Save the migration result locally only after a successful admin migration.
   if (authenticatedRole === "admin" && songsResult.data) {
@@ -528,11 +531,177 @@ function renderCards() {
   renderLikedSongs();
 }
 
-const playlists = [
+const defaultPlaylists = [
   { id: "mix", name: "Little bit of everything", description: "A little of every mood, all in one place.", songIds: songs.map((song) => song.id) },
   { id: "after-hours", name: "After hours", description: "Songs for when the day slows down.", songIds: ["enakenna", "end-of-beginning", "engeyo"] },
 ];
+const playlists = [...defaultPlaylists];
+const userPlaylistIdPrefix = "user-playlist-";
 let activeCollectionSongs = [];
+let activePlaylistId = null;
+let deletedPlaylistIds = new Set();
+
+function loadCreatedPlaylists(userId) {
+  deletedPlaylistIds = new Set();
+  playlists.splice(0, playlists.length, ...defaultPlaylists.map((playlist) => ({ ...playlist, songIds: [...playlist.songIds] })));
+
+  try {
+    const stored = JSON.parse(localStorage.getItem(`sonder-playlists-${userId}`) || "[]");
+    const savedPlaylists = Array.isArray(stored) ? stored : stored?.playlists;
+    const savedDeletedIds = Array.isArray(stored?.deletedPlaylistIds) ? stored.deletedPlaylistIds : [];
+    deletedPlaylistIds = new Set(savedDeletedIds.filter((id) =>
+      typeof id === "string" && defaultPlaylists.some((playlist) => playlist.id === id)
+    ));
+    playlists.splice(0, playlists.length,
+      ...defaultPlaylists.filter((playlist) => !deletedPlaylistIds.has(playlist.id)).map((playlist) => {
+        const savedSongIds = stored?.playlistSongIds?.[playlist.id];
+        const songIds = Array.isArray(savedSongIds)
+          ? savedSongIds.filter((id) => typeof id === "string" && songs.some((song) => song.id === id))
+          : playlist.songIds;
+        return { ...playlist, songIds: [...new Set(songIds)] };
+      })
+    );
+    if (!Array.isArray(savedPlaylists)) return;
+    const existingIds = new Set(playlists.map((playlist) => playlist.id));
+    const validSavedPlaylists = savedPlaylists.filter((playlist) =>
+      playlist &&
+      typeof playlist.id === "string" &&
+      playlist.id.startsWith(userPlaylistIdPrefix) &&
+      !existingIds.has(playlist.id) &&
+      !deletedPlaylistIds.has(playlist.id) &&
+      typeof playlist.name === "string" &&
+      playlist.name.trim() &&
+      Array.isArray(playlist.songIds)
+    ).map((playlist) => ({
+      id: playlist.id,
+      name: playlist.name.trim(),
+      description: typeof playlist.description === "string" ? playlist.description : "",
+      songIds: [...new Set(playlist.songIds.filter((id) => typeof id === "string" && songs.some((song) => song.id === id)))],
+    }));
+    playlists.push(...validSavedPlaylists);
+  } catch (error) {
+    console.warn("Could not load saved playlists.", error);
+  }
+}
+
+function saveCreatedPlaylists(playlistList = playlists, deletedIds = deletedPlaylistIds) {
+  try {
+    const savedPlaylists = playlistList.filter((playlist) => playlist.id.startsWith(userPlaylistIdPrefix));
+    localStorage.setItem(`sonder-playlists-${authenticatedUserId}`, JSON.stringify({
+      playlists: savedPlaylists,
+      deletedPlaylistIds: [...deletedIds],
+      playlistSongIds: Object.fromEntries(playlistList
+        .filter((playlist) => defaultPlaylists.some((defaultPlaylist) => defaultPlaylist.id === playlist.id))
+        .map((playlist) => [playlist.id, playlist.songIds])),
+    }));
+    return true;
+  } catch (error) {
+    console.error("Could not save your playlists.", error);
+    return false;
+  }
+}
+
+function deletePlaylist(id) {
+  const playlist = playlists.find((item) => item.id === id);
+  if (!playlist || !authenticatedUserId) return;
+  if (!window.confirm(`Delete the playlist “${playlist.name}”? This won't delete its songs.`)) return;
+
+  const remainingPlaylists = playlists.filter((item) => item.id !== id);
+  const remainingDeletedIds = new Set(deletedPlaylistIds);
+  if (defaultPlaylists.some((item) => item.id === id)) remainingDeletedIds.add(id);
+  if (!saveCreatedPlaylists(remainingPlaylists, remainingDeletedIds)) {
+    showToast(`Could not delete “${playlist.name}”. Please try again.`);
+    return;
+  }
+
+  deletedPlaylistIds = remainingDeletedIds;
+  playlists.splice(playlists.indexOf(playlist), 1);
+  if (activePlaylistId === id) {
+    activePlaylistId = null;
+    activeCollectionSongs = [];
+    showView("home");
+  }
+  renderLibrary();
+  showToast(`Deleted playlist “${playlist.name}”.`);
+}
+
+function openAddSongToPlaylistDialog(songId) {
+  const song = songs.find((item) => item.id === songId);
+  if (!authenticatedUserId || !song) return;
+  if (!playlists.length) {
+    showToast("Create a playlist before adding songs.");
+    return;
+  }
+
+  $("#add-to-playlist-song-title").textContent = song.title;
+  $("#add-to-playlist-options").innerHTML = playlists.map((playlist) => {
+    const alreadyAdded = playlist.songIds.includes(songId);
+    return `<button class="add-to-playlist-option" type="button" data-add-song-playlist="${escapeHtml(playlist.id)}" data-song-id="${escapeHtml(songId)}" ${alreadyAdded ? "disabled" : ""}>
+      <span><strong>${escapeHtml(playlist.name)}</strong><small>${alreadyAdded ? "Already in this playlist" : `${playlist.songIds.length} ${playlist.songIds.length === 1 ? "song" : "songs"}`}</small></span>
+      <span class="add-to-playlist-indicator" aria-hidden="true">${alreadyAdded ? "✓" : "+"}</span>
+    </button>`;
+  }).join("");
+  $("#add-to-playlist-dialog").showModal();
+}
+
+function addSongToPlaylist(playlistId, songId) {
+  const playlist = playlists.find((item) => item.id === playlistId);
+  const song = songs.find((item) => item.id === songId);
+  if (!authenticatedUserId || !playlist || !song) return;
+  if (playlist.songIds.includes(songId)) {
+    $("#add-to-playlist-dialog").close();
+    showToast(`“${song.title}” is already in “${playlist.name}”.`);
+    return;
+  }
+
+  const updatedPlaylists = playlists.map((item) => item.id === playlistId
+    ? { ...item, songIds: [...item.songIds, songId] }
+    : item);
+  if (!saveCreatedPlaylists(updatedPlaylists)) {
+    showToast(`Could not add “${song.title}” to “${playlist.name}”. Please try again.`);
+    return;
+  }
+
+  playlist.songIds.push(songId);
+  $("#add-to-playlist-dialog").close();
+  renderLibrary();
+  if (activePlaylistId === playlistId) {
+    showCollection({
+      type: "playlist",
+      playlistId: playlist.id,
+      name: playlist.name,
+      description: playlist.description,
+      tracks: songs.filter((item) => playlist.songIds.includes(item.id)),
+    });
+  }
+  showToast(`Added “${song.title}” to “${playlist.name}”.`);
+}
+
+function removeSongFromPlaylist(playlistId, songId) {
+  const playlist = playlists.find((item) => item.id === playlistId);
+  const song = songs.find((item) => item.id === songId);
+  if (!authenticatedUserId || !playlist || !song || !playlist.songIds.includes(songId)) return;
+
+  const updatedPlaylists = playlists.map((item) => item.id === playlistId
+    ? { ...item, songIds: item.songIds.filter((id) => id !== songId) }
+    : item);
+  if (!saveCreatedPlaylists(updatedPlaylists)) {
+    showToast(`Could not remove “${song.title}” from “${playlist.name}”. Please try again.`);
+    return;
+  }
+
+  playlist.songIds = playlist.songIds.filter((id) => id !== songId);
+  activeCollectionSongs = songs.filter((item) => playlist.songIds.includes(item.id));
+  renderLibrary();
+  showCollection({
+    type: "playlist",
+    playlistId: playlist.id,
+    name: playlist.name,
+    description: playlist.description,
+    tracks: activeCollectionSongs,
+  });
+  showToast(`Removed “${song.title}” from “${playlist.name}”.`);
+}
 
 function artistNames() {
   return [...new Set(songs.flatMap((song) => song.artist.split(/\s*,\s*/).map((name) => name.trim()).filter(Boolean)))].sort((a, b) => a.localeCompare(b));
@@ -554,10 +723,17 @@ function renderLibrary() {
   const library = $("#dynamic-library-list");
   const playlistItems = playlists.map((playlist, index) => {
     const cover = songs.find((song) => playlist.songIds.includes(song.id));
-    return `<button class="library-item playlist-library" data-playlist-id="${playlist.id}">
-      ${cover ? artwork(cover, "library-cover") : '<span class="playlist-art"><span></span><span></span><span></span><span></span></span>'}
-      <span class="library-copy"><strong>${escapeHtml(playlist.name)}</strong><small>Playlist · ${playlist.songIds.length} songs</small></span>
-    </button>`;
+    const songCount = playlist.songIds.filter((songId) => songs.some((song) => song.id === songId)).length;
+    const deleteButton = `<button class="playlist-delete-button" type="button" data-delete-playlist="${escapeHtml(playlist.id)}" aria-label="Delete playlist ${escapeHtml(playlist.name)}" title="Delete playlist">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6m4-6v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg>
+      </button>`;
+    return `<div class="library-item playlist-library">
+      <button class="playlist-open-button" type="button" data-playlist-id="${escapeHtml(playlist.id)}">
+        ${cover ? artwork(cover, "library-cover") : '<span class="playlist-art"><span></span><span></span><span></span><span></span></span>'}
+        <span class="library-copy"><strong>${escapeHtml(playlist.name)}</strong><small>Playlist · ${songCount} ${songCount === 1 ? "song" : "songs"}</small></span>
+      </button>
+      ${deleteButton}
+    </div>`;
   });
   const artistItems = artistNames().map((artist) => {
     const count = songsForArtist(artist).length;
@@ -588,18 +764,21 @@ function applyLibraryFilter(filter) {
   });
 }
 
-function showCollection({ type, name, description, tracks }) {
-  if (!tracks.length) {
+function showCollection({ type, name, description, tracks, playlistId = null }) {
+  if (!tracks.length && type !== "playlist") {
     showToast("There are no songs in this collection yet.");
     return;
   }
   activeCollectionSongs = tracks;
+  activePlaylistId = type === "playlist" ? playlistId : null;
   const hero = $("#collection-hero");
   const isPerson = type === "artist" || type === "music-director";
   const personRole = type === "music-director" ? "MUSIC DIRECTOR" : "ARTIST / SINGER";
   const coverMarkup = isPerson
     ? artwork(tracks[0], "collection-art artist-collection-art")
-    : `<div class="collection-mosaic">${tracks.slice(0, 4).map((song) => artwork(song, "collection-mosaic-art")).join("")}</div>`;
+    : tracks.length
+      ? `<div class="collection-mosaic">${tracks.slice(0, 4).map((song) => artwork(song, "collection-mosaic-art")).join("")}</div>`
+      : '<span class="playlist-art"><span></span><span></span><span></span><span></span></span>';
 
   hero.classList.toggle("artist-collection", isPerson);
   $("#collection-cover").innerHTML = coverMarkup;
@@ -608,12 +787,12 @@ function showCollection({ type, name, description, tracks }) {
   $("#collection-description").textContent = description || `${tracks.length} ${tracks.length === 1 ? "song" : "songs"} in your collection.`;
   $("#collection-list-title").textContent = isPerson ? "Songs in this collection" : "Songs in this playlist";
   $(".playlist-play-button").innerHTML = `Play ${isPerson ? "collection" : "playlist"} <span>▶</span>`;
-  renderTrackList($("#playlist-track-list"), tracks);
+  renderTrackList($("#playlist-track-list"), tracks, activePlaylistId);
   showView("playlist");
 }
 
-function renderTrackList(container, list) {
-  container.innerHTML = trackMarkup(list);
+function renderTrackList(container, list, playlistId = null) {
+  container.innerHTML = trackMarkup(list, playlistId);
 }
 
 function renderLikedSongs() {
@@ -766,16 +945,19 @@ function renderSearchResults(query = "") {
   }
 }
 
-function trackMarkup(list) {
+function trackMarkup(list, playlistId = null) {
   return list.map((song) => {
     const liked = favoriteIds.has(song.id);
     const songIndex = songs.indexOf(song);
-    const songActions = authenticatedRole === "admin"
-      ? `<span class="track-actions"><button class="track-edit" data-edit-song="${escapeHtml(song.id)}" aria-label="Edit information for ${escapeHtml(song.title)}" title="Edit song information"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 5 3 3M4 20l4.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L4 20Z"/></svg></button><button class="track-delete" data-delete-song="${escapeHtml(song.id)}" aria-label="Delete ${escapeHtml(song.title)}" title="Delete song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-.9 14H5.9L5 6m4 4v6m6-6v6"/></svg></button></span>`
-      : "";
+    const playlistButton = playlistId
+      ? `<button class="track-add-playlist track-remove-playlist" data-remove-song-from-playlist="${escapeHtml(playlistId)}" data-song-id="${escapeHtml(song.id)}" aria-label="Remove ${escapeHtml(song.title)} from this playlist" title="Remove from playlist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"/></svg></button>`
+      : `<button class="track-add-playlist" data-add-song-to-playlist="${escapeHtml(song.id)}" aria-label="Add ${escapeHtml(song.title)} to a playlist" title="Add to playlist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h11M4 11h11M4 16h6M19 13v8m-4-4h8"/></svg></button>`;
+    const songActions = `<span class="track-actions">${playlistButton}${authenticatedRole === "admin"
+      ? `<button class="track-edit" data-edit-song="${escapeHtml(song.id)}" aria-label="Edit information for ${escapeHtml(song.title)}" title="Edit song information"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 5 3 3M4 20l4.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L4 20Z"/></svg></button><button class="track-delete" data-delete-song="${escapeHtml(song.id)}" aria-label="Delete ${escapeHtml(song.title)}" title="Delete song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-.9 14H5.9L5 6m4 4v6m6-6v6"/></svg></button>`
+      : ""}</span>`;
     return `<div class="track-row ${currentSong?.id === song.id ? "playing" : ""}" data-track="${song.id}" title="${escapeHtml(song.title)}">
       <span class="track-index">${String(songIndex + 1).padStart(2, "0")}<button class="row-play" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></button></span>
-      <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
+      <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
       <button class="track-like ${liked ? "liked" : ""}" data-like="${song.id}" aria-label="${liked ? "Remove" : "Add"} ${escapeHtml(song.title)} ${liked ? "from" : "to"} liked songs"><svg viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z"/></svg></button><span class="track-duration" data-duration="${song.id}">${song.duration}</span>${songActions}
     </div>`;
   }).join("");
@@ -835,7 +1017,7 @@ function renderSongChanges() {
     renderSearchResults($("#search-input").value);
   }
   if (!$("#playlist-view").classList.contains("hidden")) {
-    renderTrackList($("#playlist-track-list"), activeCollectionSongs);
+    renderTrackList($("#playlist-track-list"), activeCollectionSongs, activePlaylistId);
   }
 }
 
@@ -916,6 +1098,7 @@ async function deleteSong(id) {
   playlists.forEach((playlist) => {
     playlist.songIds = playlist.songIds.filter((songId) => songId !== song.id);
   });
+  const playlistsSaved = !authenticatedUserId || saveCreatedPlaylists();
   activeCollectionSongs = activeCollectionSongs.filter((item) => item.id !== song.id);
   saveFavorites();
 
@@ -923,13 +1106,20 @@ async function deleteSong(id) {
   renderSongChanges();
   updatePlayingRows();
   setPlayButton(false);
-  showToast(syncError
-    ? `Deleted on this device; shared sync failed: ${syncError.message || "Please try again."}`
+  const deletionWarnings = [];
+  if (syncError) deletionWarnings.push(`shared sync failed: ${syncError.message || "Please try again."}`);
+  if (!playlistsSaved) deletionWarnings.push("playlist changes could not be saved on this device");
+  showToast(deletionWarnings.length
+    ? `Deleted on this device; ${deletionWarnings.join("; ")}.`
     : `Deleted “${song.title}”.`);
 }
 
 document.addEventListener("click", (event) => {
   const deleteTarget = event.target.closest("[data-delete-song]");
+  const deletePlaylistTarget = event.target.closest("[data-delete-playlist]");
+  const removeSongFromPlaylistTarget = event.target.closest("[data-remove-song-from-playlist]");
+  const addSongToPlaylistTarget = event.target.closest("[data-add-song-to-playlist]");
+  const addSongPlaylistTarget = event.target.closest("[data-add-song-playlist]");
   const editTarget = event.target.closest("[data-edit-song]");
   const playTarget = event.target.closest("[data-play]");
   const likeTarget = event.target.closest("[data-like]");
@@ -940,6 +1130,22 @@ document.addEventListener("click", (event) => {
   const viewTarget = event.target.closest("[data-view]");
   if (deleteTarget) {
     deleteSong(deleteTarget.dataset.deleteSong);
+    return;
+  }
+  if (deletePlaylistTarget) {
+    deletePlaylist(deletePlaylistTarget.dataset.deletePlaylist);
+    return;
+  }
+  if (removeSongFromPlaylistTarget) {
+    removeSongFromPlaylist(removeSongFromPlaylistTarget.dataset.removeSongFromPlaylist, removeSongFromPlaylistTarget.dataset.songId);
+    return;
+  }
+  if (addSongPlaylistTarget) {
+    addSongToPlaylist(addSongPlaylistTarget.dataset.addSongPlaylist, addSongPlaylistTarget.dataset.songId);
+    return;
+  }
+  if (addSongToPlaylistTarget) {
+    openAddSongToPlaylistDialog(addSongToPlaylistTarget.dataset.addSongToPlaylist);
     return;
   }
   if (editTarget) {
@@ -957,7 +1163,7 @@ document.addEventListener("click", (event) => {
   }
   if (playlistTarget) {
     const playlist = playlists.find((item) => item.id === playlistTarget.dataset.playlistId);
-    if (playlist) showCollection({ type: "playlist", name: playlist.name, description: playlist.description, tracks: songs.filter((song) => playlist.songIds.includes(song.id)) });
+    if (playlist) showCollection({ type: "playlist", playlistId: playlist.id, name: playlist.name, description: playlist.description, tracks: songs.filter((song) => playlist.songIds.includes(song.id)) });
     return;
   }
   if (artistTarget) {
@@ -1050,6 +1256,9 @@ const songUrlLabel = $("#song-url-label");
 const songFormSubmit = $("#song-form-submit");
 const songFormTitle = $("#song-form-title");
 const songFormDescription = $("#song-form-description");
+const createPlaylistDialog = $("#create-playlist-dialog");
+const createPlaylistForm = $("#create-playlist-form");
+const playlistFormError = $("#playlist-form-error");
 const autoFilledMetadata = { title: "", artist: "", album: "" };
 let metadataLookupTimer;
 let metadataLookupController;
@@ -1072,6 +1281,18 @@ function getSongDetailsFromUrl(url) {
   }
 
   return { title: filename.replace(/[_-]+/g, " ").trim(), artist: "" };
+}
+
+function resolveSongTitle(title, url) {
+  const trimmedTitle = typeof title === "string" ? title.trim() : "";
+  if (trimmedTitle && trimmedTitle.toLowerCase() !== "your uploads") return trimmedTitle;
+
+  if (typeof url === "string" && isCloudinaryAudioUrl(url)) {
+    const filenameTitle = getSongDetailsFromUrl(url).title;
+    if (filenameTitle && filenameTitle.toLowerCase() !== "your uploads") return filenameTitle;
+  }
+
+  return "Untitled song";
 }
 
 function setAutoFilledMetadata(field, value) {
@@ -1215,6 +1436,65 @@ function setSongFormMode(song = null) {
   }
 }
 
+function openCreatePlaylistDialog() {
+  if (!authenticatedUserId) return;
+  if (!songs.length) {
+    showToast("Add songs to your library before creating a playlist.");
+    return;
+  }
+
+  createPlaylistForm.reset();
+  playlistFormError.textContent = "";
+  $("#playlist-song-options").innerHTML = songs.map((song) => `
+    <label class="playlist-song-option">
+      <input type="checkbox" name="songIds" value="${escapeHtml(song.id)}" />
+      <span><strong>${escapeHtml(song.title)}</strong><small>${escapeHtml(song.artist)}</small></span>
+    </label>`).join("");
+  createPlaylistDialog.showModal();
+  createPlaylistForm.elements.namedItem("name").focus();
+}
+
+$("#create-playlist-button").addEventListener("click", openCreatePlaylistDialog);
+$("#mobile-create-playlist-button").addEventListener("click", openCreatePlaylistDialog);
+$$("[data-close-playlist-dialog]").forEach((button) => button.addEventListener("click", () => createPlaylistDialog.close()));
+$$("[data-close-add-to-playlist]").forEach((button) => button.addEventListener("click", () => $("#add-to-playlist-dialog").close()));
+createPlaylistForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  playlistFormError.textContent = "";
+  if (!authenticatedUserId) return;
+
+  const formData = new FormData(createPlaylistForm);
+  const name = String(formData.get("name") || "").trim();
+  const songIds = [...new Set(formData.getAll("songIds").filter((id) =>
+    typeof id === "string" && songs.some((song) => song.id === id)
+  ))];
+  if (!name) {
+    playlistFormError.textContent = "Enter a playlist name.";
+    return;
+  }
+  if (!songIds.length) {
+    playlistFormError.textContent = "Choose at least one song for your playlist.";
+    return;
+  }
+  if (playlists.some((playlist) => playlist.name.toLowerCase() === name.toLowerCase())) {
+    playlistFormError.textContent = "A playlist with that name already exists.";
+    return;
+  }
+
+  const playlist = {
+    id: `${userPlaylistIdPrefix}${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    description: String(formData.get("description") || "").trim(),
+    songIds,
+  };
+  playlists.push(playlist);
+  renderLibrary();
+  createPlaylistDialog.close();
+  showToast(saveCreatedPlaylists()
+    ? `Created playlist “${playlist.name}”.`
+    : `Created “${playlist.name}” for this session, but it couldn't be saved on this device.`);
+});
+
 ["#add-song-button", "#mobile-add-song-button"].forEach((selector) => $(selector).addEventListener("click", () => {
   if (authenticatedRole !== "admin") return;
   songFormError.textContent = "";
@@ -1270,9 +1550,10 @@ addSongForm.addEventListener("submit", async (event) => {
     if (editingSongId) {
       const song = songs.find((item) => item.id === editingSongId);
       if (!song) throw new Error("This song is no longer in the library. Reload and try again.");
-      const title = String(formData.get("title") || "").trim();
+      const submittedTitle = String(formData.get("title") || "").trim();
       const artist = String(formData.get("artist") || "").trim();
-      if (!title || !artist) throw new Error("Enter both a song title and artist.");
+      if (!submittedTitle || !artist) throw new Error("Enter both a song title and artist.");
+      const title = resolveSongTitle(submittedTitle, song.url);
 
       const yearInput = String(formData.get("year") || "").trim();
       const year = yearInput ? Number(yearInput) : song.year;
@@ -1327,7 +1608,7 @@ addSongForm.addEventListener("submit", async (event) => {
         throw new Error("That song is already in your library.");
       }
       const filename = getSongDetailsFromUrl(url).title;
-      const title = String(formData.get("title") || "").trim() || filename || "Untitled song";
+      const title = resolveSongTitle(formData.get("title") || filename, url);
       const artist = String(formData.get("artist") || "").trim() || "Unknown artist";
       const song = {
         id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1349,7 +1630,7 @@ addSongForm.addEventListener("submit", async (event) => {
 
       customSongs.push(song);
       songs.push(song);
-      playlists[0].songIds.push(song.id);
+      playlists.find((playlist) => playlist.id === "mix")?.songIds.push(song.id);
       updateSongCache();
       renderSongChanges();
       addSongForm.reset();
