@@ -656,7 +656,8 @@ async function playSong(song, autoplay = true) {
   playerCover.className = `cover-art cover-${song.gradient}${song.coverUrl ? " has-cover" : ""} player-cover`;
   playerCover.innerHTML = `${song.coverUrl ? `<img class="cover-image" src="${escapeHtml(song.coverUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span class="cover-number">${String(song.gradient + 1).padStart(2, "0")}</span><span class="cover-sun"></span><span class="cover-title">${escapeHtml(song.title)}</span>`;
   $("#player-title").textContent = song.title;
-  $("#player-artist").textContent = `${song.artist} · ${song.album}`;
+  $("#player-title").title = song.title;
+  $("#player-artist").textContent = song.artist;
   $("#like-current").classList.toggle("liked", favoriteIds.has(song.id));
   $("#like-current").setAttribute("aria-label", favoriteIds.has(song.id) ? "Remove from liked songs" : "Like current song");
   updatePlayingRows();
@@ -774,7 +775,7 @@ function trackMarkup(list) {
       : "";
     return `<div class="track-row ${currentSong?.id === song.id ? "playing" : ""}" data-track="${song.id}" title="${escapeHtml(song.title)}">
       <span class="track-index">${String(songIndex + 1).padStart(2, "0")}<button class="row-play" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></button></span>
-      <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album" title="${escapeHtml(song.title)}"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
+      <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
       <button class="track-like ${liked ? "liked" : ""}" data-like="${song.id}" aria-label="${liked ? "Remove" : "Add"} ${escapeHtml(song.title)} ${liked ? "from" : "to"} liked songs"><svg viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z"/></svg></button><span class="track-duration" data-duration="${song.id}">${song.duration}</span>${songActions}
     </div>`;
   }).join("");
@@ -896,6 +897,7 @@ async function deleteSong(id) {
     currentSong = null;
     currentIndex = -1;
     $("#player-title").textContent = "Pick a song";
+    $("#player-title").removeAttribute("title");
     $("#player-artist").textContent = "Your collection is waiting";
     $("#player-cover").className = "cover-art cover-0 player-cover";
     $("#player-cover").innerHTML = '<span class="cover-number">01</span><span class="cover-sun"></span>';
@@ -1303,7 +1305,8 @@ addSongForm.addEventListener("submit", async (event) => {
       updateSongCache();
       if (currentSong?.id === song.id) {
         $("#player-title").textContent = song.title;
-        $("#player-artist").textContent = `${song.artist} · ${song.album}`;
+        $("#player-title").title = song.title;
+        $("#player-artist").textContent = song.artist;
         const playerCover = $("#player-cover");
         playerCover.className = `cover-art cover-${song.gradient}${song.coverUrl ? " has-cover" : ""} player-cover`;
         playerCover.innerHTML = `${song.coverUrl ? `<img class="cover-image" src="${escapeHtml(song.coverUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span class="cover-number">${String(song.gradient + 1).padStart(2, "0")}</span><span class="cover-sun"></span><span class="cover-title">${escapeHtml(song.title)}</span>`;
