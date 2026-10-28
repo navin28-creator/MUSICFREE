@@ -82,6 +82,12 @@
           </svg>
           <span>Liked</span>
         </a>
+        <button class="nav-link mobile-create-playlist-link" id="mobile-create-playlist-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 5h16M4 12h16M4 19h8M18 15v6M15 18h6" />
+          </svg>
+          <span>New playlist</span>
+        </button>
         <button class="nav-link mobile-add-link" id="mobile-add-song-button" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
@@ -97,11 +103,18 @@
           </svg>
           <span>Your library</span>
         </div>
-        <button class="icon-button small-icon" id="add-song-button" aria-label="Add a song" title="Add a song">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
+        <div class="library-actions">
+          <button class="icon-button small-icon" id="create-playlist-button" aria-label="Create a playlist" title="Create a playlist">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 5h16M4 12h16M4 19h8M18 15v6M15 18h6" />
+            </svg>
+          </button>
+          <button class="icon-button small-icon" id="add-song-button" aria-label="Add a song" title="Add a song">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div class="library-filters" aria-label="Library filters">
@@ -382,6 +395,53 @@
         </div>
         <p class="dialog-footnote">Song information changes are shared with everyone in the library.</p>
       </form>
+    </dialog>
+    <dialog class="add-song-dialog playlist-dialog" id="create-playlist-dialog" aria-labelledby="playlist-form-title">
+      <form id="create-playlist-form">
+        <div class="dialog-heading">
+          <div>
+            <div class="section-kicker">MAKE IT YOURS</div>
+            <h2 id="playlist-form-title">Create a playlist</h2>
+          </div>
+          <button class="icon-button dialog-close" type="button" data-close-playlist-dialog aria-label="Close create playlist form"><svg
+              viewBox="0 0 24 24">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg></button>
+        </div>
+        <label class="song-form-field">
+          <span class="song-form-label">Playlist name</span>
+          <input class="song-form-input" name="name" maxlength="80" required autocomplete="off" placeholder="Give your playlist a name" />
+        </label>
+        <label class="song-form-field">
+          <span class="song-form-label">Description <span>OPTIONAL</span></span>
+          <input class="song-form-input" name="description" maxlength="160" placeholder="What does this playlist feel like?" />
+        </label>
+        <fieldset class="playlist-song-picker">
+          <legend class="song-form-label">Choose songs</legend>
+          <div class="playlist-song-options" id="playlist-song-options"></div>
+        </fieldset>
+        <p class="song-form-error" id="playlist-form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button class="dialog-cancel" type="button" data-close-playlist-dialog>Cancel</button>
+          <button class="hero-play dialog-submit" type="submit"><span class="play-triangle">＋</span> Create playlist</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog class="add-song-dialog add-to-playlist-dialog" id="add-to-playlist-dialog" aria-labelledby="add-to-playlist-title">
+      <div>
+        <div class="dialog-heading">
+          <div>
+            <div class="section-kicker">SAVE THIS SONG</div>
+            <h2 id="add-to-playlist-title">Add to a playlist</h2>
+          </div>
+          <button class="icon-button dialog-close" type="button" data-close-add-to-playlist aria-label="Close add to playlist dialog"><svg
+              viewBox="0 0 24 24">
+              <path d="m6 6 12 12M18 6 6 18" />
+            </svg></button>
+        </div>
+        <p class="dialog-description">Choose where to add <strong id="add-to-playlist-song-title"></strong>.</p>
+        <div class="add-to-playlist-options" id="add-to-playlist-options"></div>
+      </div>
     </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </div>
