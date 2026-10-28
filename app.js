@@ -26,6 +26,8 @@ let toastTimer;
 let loadingAnimationSongId = null;
 let loadingAnimationStartedAt = 0;
 let loadingAnimationHideTimer;
+let embeddedMetadataScanGeneration = 0;
+const embeddedMetadataControllers = new Set();
 let supabaseClient = null;
 let authenticatedRole = null;
 let authGeneration = 0;
@@ -37,6 +39,7 @@ let editingSongId = null;
 
 function showAuthScreen(message = "") {
   authGeneration += 1;
+  stopEmbeddedMetadataScan();
   authenticatedRole = null;
   authenticatedUserId = null;
   activatingUserId = null;
@@ -90,6 +93,7 @@ async function activateSession(user) {
     if (generation !== authGeneration) return;
 
     const isAdmin = authenticatedRole === "admin";
+    startEmbeddedMetadataScan();
 
     $("#account-role").textContent = isAdmin ? "Admin" : "Listener";
     $("#role-avatar").textContent = isAdmin ? "A" : "L";
@@ -501,8 +505,9 @@ function saveFavorites() {
 
 function artwork(song, extraClass = "") {
   const shortTitle = song.title.length > 17 ? song.title.split(" ").slice(0, 2).join(" ") : song.title;
-  const coverClass = song.coverUrl ? " has-cover" : "";
-  const image = song.coverUrl ? `<img class="cover-image" src="${escapeHtml(song.coverUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : "";
+  const coverUrl = displayCoverUrl(song);
+  const coverClass = coverUrl ? " has-cover" : "";
+  const image = coverUrl ? `<img class="cover-image" src="${escapeHtml(coverUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : "";
   return `<div class="cover-art cover-${song.gradient}${coverClass} ${extraClass}" aria-hidden="true">${image}<span class="cover-number">${String(song.gradient + 1).padStart(2, "0")}</span><span class="cover-sun"></span><span class="cover-title ${shortTitle.length > 12 ? "cover-title-small" : ""}">${escapeHtml(shortTitle)}</span></div>`;
 }
 
@@ -831,9 +836,7 @@ async function playSong(song, autoplay = true) {
   else stopSongLoading();
   audio.src = song.url;
   audio.load();
-  const playerCover = $("#player-cover");
-  playerCover.className = `cover-art cover-${song.gradient}${song.coverUrl ? " has-cover" : ""} player-cover`;
-  playerCover.innerHTML = `${song.coverUrl ? `<img class="cover-image" src="${escapeHtml(song.coverUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span class="cover-number">${String(song.gradient + 1).padStart(2, "0")}</span><span class="cover-sun"></span><span class="cover-title">${escapeHtml(song.title)}</span>`;
+  renderCurrentPlayerCover(song);
   $("#player-title").textContent = song.title;
   $("#player-title").title = song.title;
   $("#player-artist").textContent = song.artist;
@@ -1256,14 +1259,356 @@ const songUrlLabel = $("#song-url-label");
 const songFormSubmit = $("#song-form-submit");
 const songFormTitle = $("#song-form-title");
 const songFormDescription = $("#song-form-description");
+const embeddedArtFileInput = $("#embedded-art-file");
+const embeddedArtStatus = $("#embedded-art-status");
+const embeddedArtField = $("#embedded-art-field");
 const createPlaylistDialog = $("#create-playlist-dialog");
 const createPlaylistForm = $("#create-playlist-form");
 const playlistFormError = $("#playlist-form-error");
 const autoFilledMetadata = { title: "", artist: "", album: "" };
+let embeddedCoverBlob = null;
+let embeddedArtReadGeneration = 0;
+let pendingEmbeddedArtRead = Promise.resolve();
 let metadataLookupTimer;
 let metadataLookupController;
 let pendingMetadataLookup = Promise.resolve();
 let pendingMetadataUrl = "";
+
+function readSyncSafeInteger(bytes, offset) {
+  return (bytes[offset] << 21) | (bytes[offset + 1] << 14) |
+    (bytes[offset + 2] << 7) | bytes[offset + 3];
+}
+
+function decodeId3Text(bytes) {
+  if (!bytes.length) return "";
+  const encodings = ["windows-1252", "utf-16", "utf-16be", "utf-8"];
+  const encoding = encodings[bytes[0]] || "utf-8";
+  return new TextDecoder(encoding)
+    .decode(bytes.subarray(1))
+    .replace(/\0+$/g, "")
+    .trim();
+}
+
+function findId3TextTerminator(bytes, start, encoding) {
+  if (encoding === 1 || encoding === 2) {
+    for (let index = start; index + 1 < bytes.length; index += 2) {
+      if (bytes[index] === 0 && bytes[index + 1] === 0) return index;
+    }
+    return bytes.length;
+  }
+  const end = bytes.indexOf(0, start);
+  return end < 0 ? bytes.length : end;
+}
+
+async function readEmbeddedMp3Metadata(file) {
+  const header = new Uint8Array(await file.slice(0, 10).arrayBuffer());
+  if (header.length < 10 || String.fromCharCode(...header.slice(0, 3)) !== "ID3") return null;
+
+  const version = header[3];
+  if (version < 2 || version > 4) return null;
+  if (header[5] & 0x80) throw new Error("This MP3 uses ID3 unsynchronization, which isn't supported.");
+
+  const tagSize = readSyncSafeInteger(header, 6);
+  if (tagSize > 16 * 1024 * 1024) {
+    throw new Error("The MP3's ID3 tag is unusually large, so its artwork can't be read.");
+  }
+
+  const tag = new Uint8Array(await file.slice(10, 10 + tagSize).arrayBuffer());
+  let offset = 0;
+  if (header[5] & 0x40) {
+    if (version === 2) throw new Error("This compressed ID3 tag isn't supported.");
+    if (tag.length < 4) return null;
+    const extendedHeaderSize = version === 4
+      ? readSyncSafeInteger(tag, 0)
+      : (tag[0] * 0x1000000) + (tag[1] << 16) + (tag[2] << 8) + tag[3];
+    offset = version === 4 ? extendedHeaderSize : extendedHeaderSize + 4;
+    if (offset > tag.length) return null;
+  }
+  const metadata = { title: "", artist: "", album: "", year: "", cover: null };
+  const textFrameFields = version === 2
+    ? { TT2: "title", TP1: "artist", TAL: "album", TYE: "year", TCM: "composer", TCO: "genre" }
+    : { TIT2: "title", TPE1: "artist", TALB: "album", TYER: "year", TDRC: "year", TCOM: "composer", TCON: "genre" };
+  let firstCover = null;
+
+  while (offset + (version === 2 ? 6 : 10) <= tag.length) {
+    const frameHeaderSize = version === 2 ? 6 : 10;
+    const frameId = String.fromCharCode(...tag.slice(offset, offset + (version === 2 ? 3 : 4)));
+    if (!frameId.trim() || /^\0+$/.test(frameId)) break;
+    const frameSize = version === 2
+      ? (tag[offset + 3] << 16) | (tag[offset + 4] << 8) | tag[offset + 5]
+      : version === 4
+        ? readSyncSafeInteger(tag, offset + 4)
+        : (tag[offset + 4] * 0x1000000) + (tag[offset + 5] << 16) +
+          (tag[offset + 6] << 8) + tag[offset + 7];
+    const frameStart = offset + frameHeaderSize;
+    const frameEnd = frameStart + frameSize;
+    if (frameSize <= 0 || frameEnd > tag.length) break;
+
+    const textField = textFrameFields[frameId];
+    if (textField && !metadata[textField]) {
+      metadata[textField] = decodeId3Text(tag.subarray(frameStart, frameEnd));
+    } else if (frameId === "APIC" || frameId === "PIC") {
+      const frame = tag.subarray(frameStart, frameEnd);
+      const encoding = frame[0];
+      let mime;
+      let cursor;
+      if (frameId === "PIC") {
+        mime = `image/${String.fromCharCode(...frame.subarray(1, 4)).toLowerCase()}`;
+        if (mime === "image/jpg") mime = "image/jpeg";
+        cursor = 4;
+      } else {
+        const mimeEnd = frame.indexOf(0, 1);
+        if (mimeEnd < 0) {
+          offset = frameEnd;
+          continue;
+        } else {
+          mime = new TextDecoder().decode(frame.subarray(1, mimeEnd));
+          cursor = mimeEnd + 1;
+        }
+      }
+
+      if (cursor >= frame.length) {
+        offset = frameEnd;
+        continue;
+      }
+      const pictureType = frame[cursor];
+      cursor += 1;
+      const descriptionEnd = findId3TextTerminator(frame, cursor, encoding);
+      const imageStart = encoding === 1 || encoding === 2
+        ? Math.min(descriptionEnd + 2, frame.length)
+        : Math.min(descriptionEnd + 1, frame.length);
+      if (["image/jpeg", "image/png", "image/gif", "image/webp", "image/avif", "image/bmp"].includes(mime) && imageStart < frame.length) {
+        const cover = new Blob([frame.slice(imageStart)], { type: mime });
+        if (pictureType === 3) {
+          metadata.cover ||= cover;
+        } else {
+          firstCover ||= cover;
+        }
+      }
+    }
+
+    offset = frameEnd;
+  }
+
+  metadata.cover ||= firstCover;
+  return metadata;
+}
+
+async function extractEmbeddedMp3Cover(file) {
+  return (await readEmbeddedMp3Metadata(file))?.cover || null;
+}
+
+async function readResponsePrefix(response, maximumBytes) {
+  if (!response.body) {
+    throw new Error("This browser can't read a bounded audio response.");
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (total < maximumBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = value.subarray(0, maximumBytes - total);
+      chunks.push(chunk);
+      total += chunk.length;
+      if (chunk.length < value.length) {
+        await reader.cancel();
+        break;
+      }
+    }
+    if (total === maximumBytes) await reader.cancel();
+  } finally {
+    reader.releaseLock();
+  }
+  return new Blob(chunks);
+}
+
+function getId3TagSize(bytes) {
+  if (bytes.length < 10 || String.fromCharCode(...bytes.subarray(0, 3)) !== "ID3") return null;
+  return readSyncSafeInteger(bytes, 6);
+}
+
+async function fetchCloudinaryId3Metadata(url, signal) {
+  const maximumTagSize = 16 * 1024 * 1024;
+  const fetchPrefix = async (end) => {
+    const response = await fetch(url, {
+      headers: { Range: `bytes=0-${end}` },
+      signal,
+    });
+    if (!response.ok) throw new Error(`Cloudinary returned HTTP ${response.status}.`);
+    return readResponsePrefix(response, end + 1);
+  };
+
+  let prefix = await fetchPrefix(65545);
+  let tagSize = getId3TagSize(new Uint8Array(await prefix.slice(0, 10).arrayBuffer()));
+  if (tagSize === null) return null;
+  if (tagSize > maximumTagSize) throw new Error("The ID3 tag is unusually large, so it can't be read.");
+
+  const requiredBytes = tagSize + 10;
+  if (prefix.size < requiredBytes) {
+    prefix = await fetchPrefix(requiredBytes - 1);
+    tagSize = getId3TagSize(new Uint8Array(await prefix.slice(0, 10).arrayBuffer()));
+    if (tagSize === null) return null;
+  }
+
+  return readEmbeddedMp3Metadata(prefix);
+}
+
+function stopEmbeddedMetadataScan() {
+  embeddedMetadataScanGeneration += 1;
+  embeddedMetadataControllers.forEach((controller) => controller.abort());
+  embeddedMetadataControllers.clear();
+}
+
+function displayCoverUrl(song) {
+  return song.embeddedCoverUrl || song.coverUrl || "";
+}
+
+function renderCurrentPlayerCover(song) {
+  const coverUrl = displayCoverUrl(song);
+  const playerCover = $("#player-cover");
+  playerCover.className = `cover-art cover-${song.gradient}${coverUrl ? " has-cover" : ""} player-cover`;
+  playerCover.innerHTML = `${coverUrl ? `<img class="cover-image" src="${escapeHtml(coverUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span class="cover-number">${String(song.gradient + 1).padStart(2, "0")}</span><span class="cover-sun"></span><span class="cover-title">${escapeHtml(song.title)}</span>`;
+}
+
+function startEmbeddedMetadataScan() {
+  stopEmbeddedMetadataScan();
+  const generation = embeddedMetadataScanGeneration;
+  const candidates = songs.filter((song) =>
+    isCloudinaryAudioUrl(song.url) && song.embeddedMetadataUrl !== song.url
+  );
+  const status = $("#id3-metadata-status");
+  if (!candidates.length) return;
+  status.textContent = `Checking ${candidates.length} song${candidates.length === 1 ? "" : "s"} for embedded ID3 metadata…`;
+
+  let nextIndex = 0;
+  let metadataCount = 0;
+  let coverCount = 0;
+  let failedCount = 0;
+  let changed = false;
+  const workers = Array.from({ length: Math.min(3, candidates.length) }, async () => {
+    while (nextIndex < candidates.length && generation === embeddedMetadataScanGeneration) {
+      const song = candidates[nextIndex++];
+      const controller = new AbortController();
+      embeddedMetadataControllers.add(controller);
+      try {
+        const metadata = await fetchCloudinaryId3Metadata(song.url, controller.signal);
+        if (generation !== embeddedMetadataScanGeneration) return;
+        if (metadata) metadataCount += 1;
+        song.embeddedMetadataUrl = song.url;
+        song.embeddedMetadata = metadata || {};
+        if (!song.coverUrl && metadata?.cover) {
+          song.embeddedCoverUrl = URL.createObjectURL(metadata.cover);
+          coverCount += 1;
+          changed = true;
+        }
+        const composerWasArtist = song.composer === song.artist;
+        for (const [field, value] of Object.entries({
+          title: metadata?.title,
+          artist: metadata?.artist,
+          album: metadata?.album,
+        })) {
+          if (value && ["Untitled song", "Unknown artist", "Your uploads"].includes(song[field])) {
+            song[field] = value;
+            changed = true;
+          }
+        }
+        if (metadata?.composer && composerWasArtist) {
+          song.composer = metadata.composer;
+          changed = true;
+        }
+        if (metadata?.year) {
+          const year = Number.parseInt(metadata.year.match(/\d{4}/)?.[0] || "", 10);
+          if (Number.isInteger(year) && song.year === new Date().getFullYear()) {
+            song.year = year;
+            changed = true;
+          }
+        }
+      } catch (error) {
+        if (error.name === "AbortError" || generation !== embeddedMetadataScanGeneration) return;
+        failedCount += 1;
+        console.warn(`Could not read ID3 metadata from "${song.title}".`, error);
+      } finally {
+        embeddedMetadataControllers.delete(controller);
+      }
+    }
+  });
+
+  Promise.all(workers).then(() => {
+    if (generation !== embeddedMetadataScanGeneration) return;
+    if (changed) {
+      renderCards();
+      if (!$("#search-view").classList.contains("hidden")) {
+        renderSearchResults($("#search-input").value);
+      }
+      if (!$("#playlist-view").classList.contains("hidden")) {
+        renderTrackList($("#playlist-track-list"), activeCollectionSongs, activePlaylistId);
+      }
+      if (currentSong) renderCurrentPlayerCover(currentSong);
+    }
+    status.textContent = `Read ID3 metadata from ${metadataCount} of ${candidates.length} songs and found artwork for ${coverCount}.` +
+      (failedCount ? ` Couldn't check ${failedCount} song${failedCount === 1 ? "" : "s"}; check the browser console for details.` : "");
+  }).catch((error) => {
+    console.error("Could not complete the ID3 metadata scan.", error);
+    status.textContent = "Could not finish checking songs for embedded ID3 metadata.";
+  });
+}
+
+function cloudinaryCloudNameFromAudioUrl(audioUrl) {
+  const url = new URL(audioUrl);
+  return url.pathname.split("/").filter(Boolean)[0] || "";
+}
+
+async function uploadEmbeddedCover(blob, audioUrl) {
+  const uploadPreset = window.SUPABASE_CONFIG?.cloudinaryUploadPreset?.trim();
+  if (!uploadPreset) {
+    throw new Error("Set cloudinaryUploadPreset in supabase-config.js to enable automatic cover uploads.");
+  }
+  const cloudName = cloudinaryCloudNameFromAudioUrl(audioUrl);
+  if (!cloudName) throw new Error("Couldn't determine the Cloudinary account from the song URL.");
+
+  const body = new FormData();
+  body.append("file", blob, "embedded-cover.jpg");
+  body.append("upload_preset", uploadPreset);
+
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`, {
+    method: "POST",
+    body,
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error?.message || `Cloudinary cover upload failed (HTTP ${response.status}).`);
+  }
+  if (typeof result.secure_url !== "string" || !isCloudinaryImageUrl(result.secure_url)) {
+    throw new Error("Cloudinary did not return a valid image URL for the embedded cover.");
+  }
+  return result.secure_url;
+}
+
+embeddedArtFileInput.addEventListener("change", () => {
+  const generation = ++embeddedArtReadGeneration;
+  embeddedCoverBlob = null;
+  embeddedArtStatus.textContent = "";
+  const file = embeddedArtFileInput.files?.[0];
+  if (!file) return;
+
+  embeddedArtStatus.textContent = "Checking the MP3 for embedded artwork…";
+  pendingEmbeddedArtRead = (async () => {
+    try {
+      const cover = await extractEmbeddedMp3Cover(file);
+      if (generation !== embeddedArtReadGeneration) return;
+      embeddedCoverBlob = cover;
+      embeddedArtStatus.textContent = cover
+        ? "Embedded artwork found. It will be uploaded as the cover when you add the song."
+        : "No embedded ID3 cover was found. You can still add the song or enter a cover URL below.";
+    } catch (error) {
+      if (generation !== embeddedArtReadGeneration) return;
+      embeddedArtStatus.textContent = error.message || "Couldn't read artwork from this MP3.";
+    }
+  })();
+});
 
 function getSongDetailsFromUrl(url) {
   let filename = new URL(url).pathname.split("/").pop() || "Untitled song";
@@ -1397,6 +1742,10 @@ songUrlInput.addEventListener("input", () => {
 });
 
 addSongForm.addEventListener("reset", () => {
+  embeddedArtReadGeneration += 1;
+  embeddedCoverBlob = null;
+  pendingEmbeddedArtRead = Promise.resolve();
+  embeddedArtStatus.textContent = "";
   clearTimeout(metadataLookupTimer);
   metadataLookupController?.abort();
   metadataLookupController = null;
@@ -1415,6 +1764,8 @@ function setSongFormMode(song = null) {
   songUrlLabel.hidden = editing;
   songUrlInput.hidden = editing;
   metadataLookupStatus.hidden = editing;
+  embeddedArtField.hidden = editing;
+  embeddedArtStatus.hidden = editing;
   songFormTitle.textContent = editing ? "Edit song information" : "Add a song";
   songFormDescription.textContent = editing
     ? "Update this song's title, artist, album, composer, year, tags, or cover art."
@@ -1536,7 +1887,7 @@ addSongForm.addEventListener("submit", async (event) => {
 
   let formData = new FormData(addSongForm);
   const url = String(formData.get("url") || "").trim();
-  const coverUrl = String(formData.get("coverUrl") || "").trim();
+  let coverUrl = String(formData.get("coverUrl") || "").trim();
   if (coverUrl && !isCloudinaryImageUrl(coverUrl)) {
     songFormError.textContent =
       "Cover art must be a secure Cloudinary image URL.";
@@ -1588,9 +1939,7 @@ addSongForm.addEventListener("submit", async (event) => {
         $("#player-title").textContent = song.title;
         $("#player-title").title = song.title;
         $("#player-artist").textContent = song.artist;
-        const playerCover = $("#player-cover");
-        playerCover.className = `cover-art cover-${song.gradient}${song.coverUrl ? " has-cover" : ""} player-cover`;
-        playerCover.innerHTML = `${song.coverUrl ? `<img class="cover-image" src="${escapeHtml(song.coverUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span class="cover-number">${String(song.gradient + 1).padStart(2, "0")}</span><span class="cover-sun"></span><span class="cover-title">${escapeHtml(song.title)}</span>`;
+        renderCurrentPlayerCover(song);
       }
       renderSongChanges();
       addSongDialog.close();
@@ -1606,6 +1955,11 @@ addSongForm.addEventListener("submit", async (event) => {
       }
       if (songs.some((song) => song.url === url)) {
         throw new Error("That song is already in your library.");
+      }
+      await pendingEmbeddedArtRead;
+      if (!coverUrl && embeddedCoverBlob) {
+        embeddedArtStatus.textContent = "Uploading the embedded cover to Cloudinary…";
+        coverUrl = await uploadEmbeddedCover(embeddedCoverBlob, url);
       }
       const filename = getSongDetailsFromUrl(url).title;
       const title = resolveSongTitle(formData.get("title") || filename, url);
@@ -1632,6 +1986,7 @@ addSongForm.addEventListener("submit", async (event) => {
       songs.push(song);
       playlists.find((playlist) => playlist.id === "mix")?.songIds.push(song.id);
       updateSongCache();
+      startEmbeddedMetadataScan();
       renderSongChanges();
       addSongForm.reset();
       addSongDialog.close();
