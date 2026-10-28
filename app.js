@@ -774,6 +774,7 @@ function showCollection({ type, name, description, tracks, playlistId = null }) 
     showToast("There are no songs in this collection yet.");
     return;
   }
+  //testkkjhkdfjshkdjhfskdjf
   activeCollectionSongs = tracks;
   activePlaylistId = type === "playlist" ? playlistId : null;
   const hero = $("#collection-hero");
