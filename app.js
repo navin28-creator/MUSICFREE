@@ -22,6 +22,8 @@ let currentSong = null;
 let currentIndex = -1;
 let shuffleEnabled = false;
 let repeatMode = 1;
+let playbackGeneration = 0;
+let failedPlaybackGeneration = -1;
 let toastTimer;
 let loadingAnimationSongId = null;
 let loadingAnimationStartedAt = 0;
@@ -726,6 +728,7 @@ function songsForMusicDirector(musicDirector) {
 
 function renderLibrary() {
   const library = $("#dynamic-library-list");
+  const mobilePlaylistList = $("#mobile-playlist-list");
   const playlistItems = playlists.map((playlist, index) => {
     const cover = songs.find((song) => playlist.songIds.includes(song.id));
     const songCount = playlist.songIds.filter((songId) => songs.some((song) => song.id === songId)).length;
@@ -755,6 +758,17 @@ function renderLibrary() {
     </button>`;
   });
   library.innerHTML = [...playlistItems, ...artistItems, ...musicDirectorItems].join("");
+  mobilePlaylistList.innerHTML = playlists.length
+    ? playlists.map((playlist) => {
+      const cover = songs.find((song) => playlist.songIds.includes(song.id));
+      const songCount = playlist.songIds.filter((songId) => songs.some((song) => song.id === songId)).length;
+      return `<button class="mobile-playlist-item" type="button" data-playlist-id="${escapeHtml(playlist.id)}">
+        ${cover ? artwork(cover, "mobile-playlist-cover") : '<span class="playlist-art mobile-playlist-cover"><span></span><span></span><span></span><span></span></span>'}
+        <span class="mobile-playlist-copy"><strong>${escapeHtml(playlist.name)}</strong><small>${songCount} ${songCount === 1 ? "song" : "songs"}</small></span>
+        <span class="mobile-playlist-arrow" aria-hidden="true">↗</span>
+      </button>`;
+    }).join("")
+    : '<p class="mobile-playlist-empty">Your playlists will show up here.</p>';
   applyLibraryFilter($(".filter-chip.selected")?.dataset.libraryFilter || "all");
 }
 
@@ -774,6 +788,7 @@ function showCollection({ type, name, description, tracks, playlistId = null }) 
     showToast("There are no songs in this collection yet.");
     return;
   }
+  //testkkjhkdfjshkdjhfskdjf
   activeCollectionSongs = tracks;
   activePlaylistId = type === "playlist" ? playlistId : null;
   const hero = $("#collection-hero");
@@ -829,11 +844,23 @@ function updateProgressFill(input) {
 }
 
 async function playSong(song, autoplay = true) {
-  const isNewSong = currentSong?.id !== song.id;
+  if (!song) {
+    showToast("There are no songs available to play yet.");
+    return;
+  }
+
+  const generation = ++playbackGeneration;
   currentSong = song;
   currentIndex = songs.indexOf(song);
-  if (autoplay && (isNewSong || loadingAnimationSongId === song.id)) showSongLoading(song);
+  failedPlaybackGeneration = -1;
+  if (autoplay) showSongLoading(song);
   else stopSongLoading();
+  setPlayerStatus(autoplay ? "Loading audio…" : "");
+  $("#current-time").textContent = "0:00";
+  $("#duration").textContent = "0:00";
+  $("#progress").value = "0";
+  $("#progress").disabled = true;
+  updateProgressFill($("#progress"));
   audio.src = song.url;
   audio.load();
   renderCurrentPlayerCover(song);
@@ -846,21 +873,32 @@ async function playSong(song, autoplay = true) {
   if (autoplay) {
     try {
       await audio.play();
-      if (currentSong?.id === song.id) {
+      if (generation === playbackGeneration) {
         hideSongLoading(song.id);
         setPlayButton(true);
       }
     } catch (error) {
-      if (currentSong?.id === song.id) {
-        hideSongLoading(song.id);
-        setPlayButton(false);
-        showToast("This song couldn't be played. Check the Cloudinary link and try again.");
-        console.error(`Could not play "${song.title}".`, error);
-      }
+      reportPlaybackError(error, generation);
     }
   } else {
     setPlayButton(false);
   }
+}
+
+function setPlayerStatus(message) {
+  const status = $("#player-status");
+  status.textContent = message;
+  status.hidden = !message;
+}
+
+function reportPlaybackError(error, generation = playbackGeneration) {
+  if (!currentSong || generation !== playbackGeneration || failedPlaybackGeneration === generation) return;
+  failedPlaybackGeneration = generation;
+  hideSongLoading(currentSong.id);
+  setPlayButton(false);
+  setPlayerStatus("Audio unavailable. Try another song or retry.");
+  showToast(`Couldn't play "${currentSong.title}". Check the audio link or try another song.`);
+  console.error(`Could not play "${currentSong.title}".`, error);
 }
 
 function showSongLoading(song) {
@@ -917,7 +955,9 @@ function toggleFavorite(id) {
 
 function playNext(direction = 1) {
   if (!songs.length) return;
-  if (shuffleEnabled && direction === 1 && songs.length > 1) {
+  if (currentIndex < 0) {
+    currentIndex = 0;
+  } else if (shuffleEnabled && direction === 1 && songs.length > 1) {
     let nextIndex = currentIndex;
     while (nextIndex === currentIndex) nextIndex = Math.floor(Math.random() * songs.length);
     currentIndex = nextIndex;
@@ -1209,12 +1249,15 @@ $("#play-button").addEventListener("click", async () => {
     return;
   }
   if (audio.paused) {
+    failedPlaybackGeneration = -1;
+    showSongLoading(currentSong);
+    setPlayerStatus("Loading audio…");
     try {
       await audio.play();
       setPlayButton(true);
+      setPlayerStatus("");
     } catch (error) {
-      showToast("This song couldn't be played. Check the Cloudinary link and try again.");
-      console.error(`Could not play "${currentSong.title}".`, error);
+      reportPlaybackError(error);
     }
   } else {
     audio.pause();
@@ -1235,12 +1278,14 @@ $("#download-button").addEventListener("click", () => downloadSong(currentSong))
 $("#shuffle-button").addEventListener("click", () => {
   shuffleEnabled = !shuffleEnabled;
   $("#shuffle-button").classList.toggle("toggled", shuffleEnabled);
+  $("#shuffle-button").setAttribute("aria-pressed", String(shuffleEnabled));
   showToast(shuffleEnabled ? "Shuffle is on" : "Shuffle is off");
 });
 $("#repeat-button").addEventListener("click", () => {
   repeatMode = (repeatMode + 1) % 3;
   $("#repeat-button").classList.toggle("toggled", repeatMode > 0);
   $("#repeat-button").setAttribute("aria-label", ["Repeat off", "Repeat all", "Repeat one"][repeatMode]);
+  $("#repeat-button").setAttribute("aria-pressed", String(repeatMode > 0));
   showToast(["Repeat is off", "Repeating all songs", "Repeating this song"][repeatMode]);
 });
 $("#like-current").addEventListener("click", () => {
@@ -2023,7 +2068,15 @@ $("#volume").addEventListener("input", (event) => {
   updateProgressFill(event.target);
 });
 $("#progress").addEventListener("input", (event) => {
-  if (Number.isFinite(audio.duration)) audio.currentTime = (Number(event.target.value) / 1000) * audio.duration;
+  if (Number.isFinite(audio.duration) && audio.duration > 0) {
+    try {
+      audio.currentTime = (Number(event.target.value) / 1000) * audio.duration;
+      $("#current-time").textContent = formatTime(audio.currentTime);
+    } catch (error) {
+      console.warn("Could not seek within the current song.", error);
+      showToast("Seeking isn't available for this audio right now.");
+    }
+  }
   updateProgressFill(event.target);
 });
 $$("[data-library-filter]").forEach((button) => button.addEventListener("click", () => {
@@ -2043,21 +2096,36 @@ audio.addEventListener("loadedmetadata", () => {
     currentSong.duration = formatTime(audio.duration);
     $$(`[data-duration="${CSS.escape(currentSong.id)}"]`).forEach((node) => { node.textContent = currentSong.duration; });
     $("#duration").textContent = formatTime(audio.duration);
+    $("#progress").disabled = !Number.isFinite(audio.duration) || audio.duration <= 0;
+    updateProgressFill($("#progress"));
   }
 });
 audio.addEventListener("timeupdate", () => {
   $("#current-time").textContent = formatTime(audio.currentTime);
-  $("#progress").value = audio.duration ? String((audio.currentTime / audio.duration) * 1000) : "0";
+  $("#progress").value = Number.isFinite(audio.duration) && audio.duration > 0
+    ? String((audio.currentTime / audio.duration) * 1000)
+    : "0";
   updateProgressFill($("#progress"));
 });
-audio.addEventListener("play", () => setPlayButton(true));
+audio.addEventListener("play", () => {
+  setPlayButton(true);
+  $("#now-playing").classList.add("is-playing");
+});
 audio.addEventListener("pause", () => {
   setPlayButton(false);
+  $("#now-playing").classList.remove("is-playing");
 });
 audio.addEventListener("playing", () => {
-  if (currentSong) hideSongLoading(currentSong.id);
+  if (currentSong) {
+    hideSongLoading(currentSong.id);
+    setPlayerStatus("");
+  }
+});
+audio.addEventListener("waiting", () => {
+  if (currentSong && !audio.paused) setPlayerStatus("Buffering audio…");
 });
 audio.addEventListener("ended", () => {
+  $("#now-playing").classList.remove("is-playing");
   if (repeatMode === 2) {
     audio.currentTime = 0;
     audio.play().catch((error) => console.error("Could not repeat the current song.", error));
@@ -2068,11 +2136,14 @@ audio.addEventListener("ended", () => {
   }
 });
 audio.addEventListener("error", () => {
-  if (currentSong) {
-    hideSongLoading(currentSong.id);
-    setPlayButton(false);
-    showToast("Couldn't load this audio. Please check the Cloudinary asset link.");
+  if (!currentSong || !audio.currentSrc) return;
+  try {
+    if (new URL(audio.currentSrc).href !== new URL(currentSong.url).href) return;
+  } catch (error) {
+    console.warn("Could not verify the current audio source.", error);
+    return;
   }
+  reportPlaybackError(audio.error || new Error("The audio source could not be loaded."));
 });
 
 const themeToggle = $("#theme-toggle");

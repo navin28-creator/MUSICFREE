@@ -30,3 +30,9 @@ On sign-in, the app checks each Cloudinary MP3 URL for embedded ID3 tags using b
 When adding a song, you can also select the original MP3 file in **Get cover from MP3** to extract artwork locally. That image is uploaded to the Cloudinary account used by the song URL and saved as a persistent cover URL.
 
 To enable cover uploads, create an **unsigned** upload preset in Cloudinary's Upload settings and put its name in `cloudinaryUploadPreset` in [`supabase-config.js`](./supabase-config.js). Restrict the preset to image formats and a suitable file-size limit; unsigned presets are public. The preset name is public; do not put a Cloudinary API secret in browser code. This automatic extraction supports embedded MP3 ID3 artwork. Songs without supported embedded art can still use the cover URL field.
+
+
+test @123123123
+
+
+,,
