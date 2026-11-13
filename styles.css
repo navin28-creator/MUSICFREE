@@ -1276,6 +1276,37 @@ svg {
   min-width: 0;
 }
 
+.player-expand-trigger {
+  cursor: pointer;
+  color: inherit;
+}
+
+.player-cover.player-expand-trigger {
+  padding: 0;
+  border: 0;
+}
+
+.player-expand-details {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.player-expand-details:hover {
+  background: transparent;
+}
+
+.expanded-player-header {
+  display: none;
+}
+
 .player-loading-animation {
   position: absolute;
   z-index: 2;
@@ -1304,6 +1335,7 @@ svg {
   width: 42px;
   flex: 0 0 42px;
   border-radius: 4px;
+  font: inherit;
 }
 
 .player-cover .cover-number {
@@ -3850,6 +3882,252 @@ a:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .now-playing.is-playing .progress-wave path {
     animation: none;
+  }
+}
+
+body.player-expanded {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+@media (max-width: 780px) {
+  .now-playing.is-expanded {
+    z-index: 20;
+    inset: 0;
+    width: auto;
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "header"
+      "track"
+      "controls"
+      "extras";
+    gap: clamp(12px, 2.5vh, 24px);
+    overflow-y: auto;
+    padding: max(14px, env(safe-area-inset-top)) 24px max(16px, env(safe-area-inset-bottom));
+    border: 0;
+    border-radius: 0;
+    background: linear-gradient(180deg, var(--panel-raised), var(--panel) 48%, var(--bg));
+    box-shadow: none;
+    animation: mobile-player-pop-in .38s cubic-bezier(.2, .8, .2, 1) both;
+  }
+
+  .now-playing.is-expanded.is-closing {
+    animation: mobile-player-pop-out .3s cubic-bezier(.4, 0, 1, 1) both;
+    pointer-events: none;
+  }
+
+  .now-playing.is-expanded .expanded-player-header {
+    grid-area: header;
+    min-height: 36px;
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 40px;
+    align-items: center;
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-align: center;
+  }
+
+  .now-playing.is-expanded .collapse-player-button,
+  .now-playing.is-expanded .expanded-player-header-spacer {
+    width: 36px;
+    height: 36px;
+  }
+
+  .now-playing.is-expanded .collapse-player-button {
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+  }
+
+  .now-playing.is-expanded .collapse-player-button svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+  }
+
+  .now-playing.is-expanded .player-track {
+    grid-area: track;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-items: end;
+    column-gap: 14px;
+    row-gap: clamp(14px, 2.5vh, 22px);
+  }
+
+  .now-playing.is-expanded .player-cover.player-expand-trigger {
+    grid-area: 1 / 1 / 2 / -1;
+    justify-self: center;
+    align-self: center;
+    width: min(84vw, 360px, 38dvh);
+    height: auto;
+    flex: none;
+    aspect-ratio: 1;
+    border-radius: 7px;
+    box-shadow: 0 16px 46px rgba(0, 0, 0, .35);
+  }
+
+  .now-playing.is-expanded .player-loading-animation {
+    top: calc(50% + 32px);
+    left: 50%;
+    width: min(84vw, 360px, 38dvh);
+    height: auto;
+    aspect-ratio: 1;
+    border-radius: 7px;
+    transform: translate(-50%, -50%);
+  }
+
+  .now-playing.is-expanded .player-song-copy {
+    grid-area: 2 / 1;
+    min-width: 0;
+    align-self: center;
+    gap: 6px;
+  }
+
+  .now-playing.is-expanded .player-expand-details {
+    max-width: 100%;
+    gap: 6px;
+  }
+
+  .now-playing.is-expanded .player-song-copy strong {
+    font-size: 17px;
+    font-weight: 700;
+  }
+
+  .now-playing.is-expanded .player-song-copy span {
+    font-size: 13px;
+  }
+
+  .now-playing.is-expanded .player-song-copy .player-status {
+    font-size: 10px;
+  }
+
+  .now-playing.is-expanded .player-like {
+    grid-area: 2 / 2;
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    margin: 0;
+  }
+
+  .now-playing.is-expanded .player-like svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .now-playing.is-expanded .player-controls {
+    grid-area: controls;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-self: end;
+  }
+
+  .now-playing.is-expanded .progress-row {
+    order: -1;
+    margin: 0 0 14px;
+  }
+
+  .now-playing.is-expanded .control-buttons {
+    height: 54px;
+    justify-content: space-between;
+    gap: clamp(8px, 4vw, 22px);
+  }
+
+  .now-playing.is-expanded .control-button {
+    width: 40px;
+    height: 40px;
+  }
+
+  .now-playing.is-expanded .control-button svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .now-playing.is-expanded .player-play-button {
+    width: 54px;
+    height: 54px;
+  }
+
+  .now-playing.is-expanded .player-play-button svg {
+    width: 23px;
+    height: 23px;
+  }
+
+  .now-playing.is-expanded .progress-row {
+    grid-template-columns: 36px minmax(0, 1fr) 36px;
+    gap: 9px;
+    font-size: 10px;
+  }
+
+  .now-playing.is-expanded .player-extras {
+    grid-area: extras;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: max(0px, env(safe-area-inset-bottom));
+  }
+
+  .now-playing.is-expanded .player-extras .volume-icon {
+    display: block;
+    flex: 0 0 16px;
+  }
+
+  .now-playing.is-expanded .player-extras .volume-slider {
+    display: block;
+    width: min(25vw, 100px);
+    flex: 0 1 100px;
+  }
+
+  .now-playing.is-expanded .download-button,
+  .now-playing.is-expanded .queue-button {
+    width: 36px;
+    height: 36px;
+  }
+
+  .now-playing.is-expanded .download-button svg,
+  .now-playing.is-expanded .queue-button svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@keyframes mobile-player-pop-in {
+  from {
+    opacity: .7;
+    transform: translateY(28px) scale(.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mobile-player-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(32px) scale(.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .now-playing.is-expanded,
+  .now-playing.is-expanded.is-closing {
+    animation-duration: .01ms;
   }
 }
 
