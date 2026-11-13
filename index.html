@@ -305,15 +305,25 @@
     </main>
 
     <section class="now-playing" id="now-playing" aria-label="Music player" hidden>
+      <div class="expanded-player-header">
+        <button class="icon-button collapse-player-button" id="collapse-player-button" type="button"
+          aria-label="Close expanded player"><svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg></button>
+        <span>NOW PLAYING</span>
+        <span class="expanded-player-header-spacer" aria-hidden="true"></span>
+      </div>
       <div class="player-track">
-        <div class="player-cover cover-art cover-0" id="player-cover"><span class="cover-number">01</span><span
-            class="cover-sun"></span></div>
+        <button class="player-cover cover-art cover-0 player-expand-trigger" id="player-cover" type="button"
+          aria-label="Expand now playing" aria-expanded="false"><span class="cover-number">01</span><span
+            class="cover-sun"></span></button>
         <div class="player-loading-animation" id="player-loading-animation" aria-hidden="true">
           <img src="assets/dancing-monkey-loader.svg" alt="" />
         </div>
-        <div class="player-song-copy"><strong id="player-title">Pick a song</strong><span id="player-artist">Your
-            collection is waiting</span><span class="player-status" id="player-status" role="status"
-            aria-live="polite" hidden></span></div>
+        <div class="player-song-copy"><button class="player-expand-details player-expand-trigger"
+            id="player-expand-details" type="button" aria-label="Expand now playing" aria-expanded="false"><strong
+              id="player-title">Pick a song</strong><span id="player-artist">Your collection is waiting</span></button><span
+            class="player-status" id="player-status" role="status" aria-live="polite" hidden></span></div>
         <button id="like-current" class="icon-button player-like" aria-label="Like current song"
           title="Like this song"><svg viewBox="0 0 24 24">
             <path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z" />

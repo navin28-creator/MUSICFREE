@@ -24,6 +24,8 @@ let shuffleEnabled = false;
 let repeatMode = 1;
 let playbackGeneration = 0;
 let failedPlaybackGeneration = -1;
+let expandedPlayerTrigger = null;
+let expandedPlayerCloseTimer = null;
 let toastTimer;
 let loadingAnimationSongId = null;
 let loadingAnimationStartedAt = 0;
@@ -41,6 +43,7 @@ let editingSongId = null;
 
 function showAuthScreen(message = "") {
   authGeneration += 1;
+  closeExpandedPlayer(true);
   stopEmbeddedMetadataScan();
   authenticatedRole = null;
   authenticatedUserId = null;
@@ -1124,7 +1127,7 @@ async function deleteSong(id) {
     $("#player-title").textContent = "Pick a song";
     $("#player-title").removeAttribute("title");
     $("#player-artist").textContent = "Your collection is waiting";
-    $("#player-cover").className = "cover-art cover-0 player-cover";
+    $("#player-cover").className = "cover-art cover-0 player-cover player-expand-trigger";
     $("#player-cover").innerHTML = '<span class="cover-number">01</span><span class="cover-sun"></span>';
     $("#current-time").textContent = "0:00";
     $("#duration").textContent = "0:00";
@@ -1275,6 +1278,82 @@ $("#previous-button").addEventListener("click", () => {
   else playNext(-1);
 });
 $("#download-button").addEventListener("click", () => downloadSong(currentSong));
+function isMobilePlayer() {
+  return window.matchMedia("(max-width: 780px)").matches;
+}
+
+function openExpandedPlayer(trigger) {
+  if (!currentSong || !isMobilePlayer()) return;
+  clearTimeout(expandedPlayerCloseTimer);
+  expandedPlayerTrigger = trigger;
+  const player = $("#now-playing");
+  player.classList.remove("is-closing");
+  player.classList.add("is-expanded");
+  player.setAttribute("role", "dialog");
+  player.setAttribute("aria-modal", "true");
+  $("#player-cover").setAttribute("aria-expanded", "true");
+  $("#player-expand-details").setAttribute("aria-expanded", "true");
+  document.body.classList.add("player-expanded");
+  $("#collapse-player-button").focus();
+}
+
+function closeExpandedPlayer(immediate = false) {
+  const player = $("#now-playing");
+  if (!player.classList.contains("is-expanded")) return;
+  clearTimeout(expandedPlayerCloseTimer);
+
+  const finishClosing = () => {
+    player.classList.remove("is-expanded", "is-closing");
+    player.removeAttribute("role");
+    player.removeAttribute("aria-modal");
+    $("#player-cover").setAttribute("aria-expanded", "false");
+    $("#player-expand-details").setAttribute("aria-expanded", "false");
+    document.body.classList.remove("player-expanded");
+    if (expandedPlayerTrigger?.isConnected && !player.hidden) {
+      expandedPlayerTrigger.focus({ preventScroll: true });
+    }
+    expandedPlayerTrigger = null;
+  };
+
+  if (immediate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    finishClosing();
+    return;
+  }
+  player.classList.add("is-closing");
+  expandedPlayerCloseTimer = setTimeout(finishClosing, 300);
+}
+
+$("#player-cover").addEventListener("click", (event) => openExpandedPlayer(event.currentTarget));
+$("#player-expand-details").addEventListener("click", (event) => openExpandedPlayer(event.currentTarget));
+$("#collapse-player-button").addEventListener("click", () => closeExpandedPlayer());
+
+document.addEventListener("keydown", (event) => {
+  const player = $("#now-playing");
+  if (!player.classList.contains("is-expanded")) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeExpandedPlayer();
+    return;
+  }
+  if (event.key !== "Tab") return;
+
+  const focusable = $$("button:not(:disabled), input:not(:disabled)", player)
+    .filter((element) => element.getClientRects().length);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
+
+window.addEventListener("resize", () => {
+  if (!isMobilePlayer()) closeExpandedPlayer(true);
+});
 $("#shuffle-button").addEventListener("click", () => {
   shuffleEnabled = !shuffleEnabled;
   $("#shuffle-button").classList.toggle("toggled", shuffleEnabled);
@@ -1514,7 +1593,7 @@ function displayCoverUrl(song) {
 function renderCurrentPlayerCover(song) {
   const coverUrl = displayCoverUrl(song);
   const playerCover = $("#player-cover");
-  playerCover.className = `cover-art cover-${song.gradient}${coverUrl ? " has-cover" : ""} player-cover`;
+  playerCover.className = `cover-art cover-${song.gradient}${coverUrl ? " has-cover" : ""} player-cover player-expand-trigger`;
   playerCover.innerHTML = `${coverUrl ? `<img class="cover-image" src="${escapeHtml(coverUrl)}" alt="" referrerpolicy="no-referrer" />` : ""}<span class="cover-number">${String(song.gradient + 1).padStart(2, "0")}</span><span class="cover-sun"></span><span class="cover-title">${escapeHtml(song.title)}</span>`;
 }
 
