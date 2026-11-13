@@ -1277,7 +1277,7 @@ svg {
 }
 
 .player-expand-trigger {
-  cursor: pointer;
+  cursor: default;
   color: inherit;
 }
 
@@ -1375,6 +1375,10 @@ svg {
 .player-song-copy .player-status {
   color: #e4ad64;
   font-size: 8px;
+}
+
+.player-album {
+  display: none;
 }
 
 .player-like {
@@ -1524,6 +1528,17 @@ input[type="range"] {
   justify-content: flex-end;
   align-items: center;
   gap: 12px;
+}
+
+.player-volume-control,
+.player-action-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.player-volume-control {
+  min-width: 0;
 }
 
 .queue-button {
@@ -4417,4 +4432,211 @@ body.player-expanded {
 .remember-me span {
   display: inline;
   line-height: 1.4;
+}
+
+@media (min-width: 781px) {
+  .now-playing {
+    right: auto;
+    bottom: 14px;
+    left: 50%;
+    width: min(920px, calc(100% - 32px));
+    height: 64px;
+    grid-template-columns: minmax(136px, 150px) minmax(150px, 1fr) minmax(72px, 82px) minmax(185px, 1.15fr) minmax(100px, 125px);
+    grid-template-areas: "controls progress volume track extras";
+    gap: 10px;
+    padding: 0 15px;
+    border: 1px solid rgba(255, 255, 255, .06);
+    border-radius: 8px;
+    background: #282d35;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, .35);
+    transform: translateX(-50%);
+  }
+
+  .player-controls {
+    display: contents;
+  }
+
+  .control-buttons {
+    grid-area: controls;
+    height: auto;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+
+  .control-button {
+    width: 20px;
+    height: 28px;
+  }
+
+  .control-button svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  #play-button {
+    order: 1;
+    width: 29px;
+    height: 29px;
+    background: var(--lime);
+    color: #10110f;
+  }
+
+  #previous-button {
+    order: 2;
+  }
+
+  #next-button {
+    order: 3;
+  }
+
+  #shuffle-button {
+    order: 4;
+  }
+
+  #repeat-button {
+    order: 5;
+  }
+
+  .progress-row {
+    grid-area: progress;
+    min-width: 0;
+    grid-template-columns: 27px minmax(50px, 1fr) 27px;
+    gap: 6px;
+    font-size: 8px;
+  }
+
+  .player-track {
+    grid-area: track;
+    gap: 8px;
+  }
+
+  .player-cover {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
+  }
+
+  .player-song-copy {
+    flex: 1 1 auto;
+  }
+
+  .player-expand-details {
+    gap: 2px;
+  }
+
+  .player-song-copy strong {
+    font-size: 9px;
+  }
+
+  .player-song-copy span {
+    font-size: 8px;
+  }
+
+  .player-album {
+    display: block;
+    color: #858b94 !important;
+    font-size: 7px !important;
+  }
+
+  .player-like {
+    width: 22px;
+    height: 24px;
+    flex: 0 0 22px;
+    margin: 0;
+  }
+
+  .player-like svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .player-extras {
+    display: contents;
+  }
+
+  .player-volume-control {
+    grid-area: volume;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .player-action-group {
+    grid-area: extras;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+  }
+
+  .player-add-playlist-button,
+  .download-button,
+  .queue-button {
+    width: 24px;
+    height: 26px;
+    flex: 0 0 24px;
+  }
+
+  .player-add-playlist-button svg,
+  .download-button svg,
+  .queue-button svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .volume-slider {
+    width: 54px;
+    flex: 0 1 54px;
+  }
+
+  .scroll-reveal-item {
+    opacity: 0;
+    transform: translateY(16px) scale(.985);
+    transition: opacity .42s ease, transform .55s cubic-bezier(.2, .75, .2, 1);
+    transition-delay: 0ms;
+  }
+
+  .scroll-reveal-item.is-revealed {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    transition-delay: var(--scroll-reveal-delay, 0ms);
+  }
+
+  button.scroll-reveal-item.is-revealed:hover {
+    transform: translateY(-1px) scale(1);
+  }
+}
+
+@media (max-width: 780px) {
+  .player-expand-trigger {
+    cursor: pointer;
+  }
+
+  .player-extras .player-add-playlist-button {
+    display: none;
+  }
+
+  .player-volume-control {
+    display: none;
+  }
+
+  .now-playing.is-expanded .player-add-playlist-button {
+    width: 36px;
+    height: 36px;
+    display: grid;
+  }
+
+  .now-playing.is-expanded .player-volume-control {
+    display: flex;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scroll-reveal-item,
+  .scroll-reveal-item.is-revealed {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }

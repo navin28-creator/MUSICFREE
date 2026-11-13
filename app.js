@@ -26,6 +26,7 @@ let playbackGeneration = 0;
 let failedPlaybackGeneration = -1;
 let expandedPlayerTrigger = null;
 let expandedPlayerCloseTimer = null;
+let songRevealObserver = null;
 let toastTimer;
 let loadingAnimationSongId = null;
 let loadingAnimationStartedAt = 0;
@@ -522,19 +523,19 @@ function escapeHtml(value) {
 
 function renderCards() {
   renderLibrary();
-  $("#quick-grid").innerHTML = songs.slice(0, 6).map((song) => `
+  renderSongItems($("#quick-grid"), songs.slice(0, 6).map((song) => `
     <button class="quick-card" data-play="${song.id}" title="${escapeHtml(song.title)}" aria-label="Play ${escapeHtml(song.title)}">
       ${artwork(song)}
       <span class="quick-card-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span>
       <span class="quick-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></span>
-    </button>`).join("");
+    </button>`).join(""));
 
-  $("#album-grid").innerHTML = songs.slice(0, 5).map((song) => `
+  renderSongItems($("#album-grid"), songs.slice(0, 5).map((song) => `
     <button class="album-card" data-play="${song.id}" title="${escapeHtml(song.title)}" aria-label="Play ${escapeHtml(song.title)}">
       ${artwork(song)}
       <span class="album-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></span>
       <span class="album-meta"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span>
-    </button>`).join("");
+    </button>`).join(""));
   $("#track-total").textContent = `${songs.length} SONGS`;
   $("#footer-year").textContent = new Date().getFullYear();
   renderTrackList($("#track-list"), songs);
@@ -815,7 +816,40 @@ function showCollection({ type, name, description, tracks, playlistId = null }) 
 }
 
 function renderTrackList(container, list, playlistId = null) {
-  container.innerHTML = trackMarkup(list, playlistId);
+  renderSongItems(container, trackMarkup(list, playlistId));
+}
+
+function renderSongItems(container, markup) {
+  if (songRevealObserver) {
+    $$(".scroll-reveal-item", container).forEach((item) => songRevealObserver.unobserve(item));
+  }
+  container.innerHTML = markup;
+  observeSongItems(container);
+}
+
+function observeSongItems(container) {
+  if (!window.matchMedia("(min-width: 781px)").matches ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      !("IntersectionObserver" in window)) return;
+
+  if (!songRevealObserver) {
+    songRevealObserver = new IntersectionObserver((entries, observer) => {
+      entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+        .forEach((entry, index) => {
+          entry.target.style.setProperty("--scroll-reveal-delay", `${Math.min(index * 55, 275)}ms`);
+          entry.target.classList.add("is-revealed");
+          observer.unobserve(entry.target);
+        });
+    }, { threshold: 0.08, rootMargin: "0px 0px -24px 0px" });
+  }
+
+  $$(".track-row, .quick-card, .album-card", container).forEach((item) => {
+    if (item.classList.contains("scroll-reveal-item")) return;
+    item.classList.add("scroll-reveal-item");
+    songRevealObserver.observe(item);
+  });
 }
 
 function renderLikedSongs() {
@@ -870,6 +904,7 @@ async function playSong(song, autoplay = true) {
   $("#player-title").textContent = song.title;
   $("#player-title").title = song.title;
   $("#player-artist").textContent = song.artist;
+  $("#player-album").textContent = song.album;
   $("#like-current").classList.toggle("liked", favoriteIds.has(song.id));
   $("#like-current").setAttribute("aria-label", favoriteIds.has(song.id) ? "Remove from liked songs" : "Like current song");
   updatePlayingRows();
@@ -983,11 +1018,11 @@ function renderSearchResults(query = "") {
   const results = normalized ? songs.filter((song) => `${song.title} ${song.artist} ${song.album} ${song.composer} ${song.year} ${song.tags}`.toLowerCase().includes(normalized)) : songs;
   const resultContainer = $("#search-results");
   if (!normalized) {
-    resultContainer.innerHTML = `<p class="search-hint">A few good places to start</p><div class="quick-grid">${songs.slice(0, 6).map((song) => `<button class="quick-card" data-play="${song.id}" title="${escapeHtml(song.title)}">${artwork(song)}<span class="quick-card-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span><span class="quick-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></span></button>`).join("")}</div><div class="search-section-heading">ALL SONGS · ${songs.length}</div>${trackMarkup(results)}`;
+    renderSongItems(resultContainer, `<p class="search-hint">A few good places to start</p><div class="quick-grid">${songs.slice(0, 6).map((song) => `<button class="quick-card" data-play="${song.id}" title="${escapeHtml(song.title)}">${artwork(song)}<span class="quick-card-copy"><strong>${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)}</span></span><span class="quick-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></span></button>`).join("")}</div><div class="search-section-heading">ALL SONGS · ${songs.length}</div>${trackMarkup(results)}`);
   } else if (!results.length) {
-    resultContainer.innerHTML = `<p class="search-no-results">No songs found for “${escapeHtml(query.trim())}”. Try a different song or artist.</p>`;
+    renderSongItems(resultContainer, `<p class="search-no-results">No songs found for “${escapeHtml(query.trim())}”. Try a different song or artist.</p>`);
   } else {
-    resultContainer.innerHTML = `<div class="search-section-heading">${results.length} ${results.length === 1 ? "RESULT" : "RESULTS"}</div>${trackMarkup(results)}`;
+    renderSongItems(resultContainer, `<div class="search-section-heading">${results.length} ${results.length === 1 ? "RESULT" : "RESULTS"}</div>${trackMarkup(results)}`);
   }
 }
 
@@ -1127,6 +1162,7 @@ async function deleteSong(id) {
     $("#player-title").textContent = "Pick a song";
     $("#player-title").removeAttribute("title");
     $("#player-artist").textContent = "Your collection is waiting";
+    $("#player-album").textContent = "";
     $("#player-cover").className = "cover-art cover-0 player-cover player-expand-trigger";
     $("#player-cover").innerHTML = '<span class="cover-number">01</span><span class="cover-sun"></span>';
     $("#current-time").textContent = "0:00";
@@ -1278,8 +1314,20 @@ $("#previous-button").addEventListener("click", () => {
   else playNext(-1);
 });
 $("#download-button").addEventListener("click", () => downloadSong(currentSong));
+$("#player-add-playlist-button").addEventListener("click", () => {
+  if (currentSong) openAddSongToPlaylistDialog(currentSong.id);
+  else showToast("Pick a song before adding it to a playlist.");
+});
 function isMobilePlayer() {
   return window.matchMedia("(max-width: 780px)").matches;
+}
+
+function updatePlayerExpandTriggers() {
+  const isMobile = isMobilePlayer();
+  $("#player-cover").tabIndex = isMobile ? 0 : -1;
+  $("#player-cover").setAttribute("aria-label", isMobile ? "Expand now playing" : "Current track artwork");
+  $("#player-expand-details").tabIndex = isMobile ? 0 : -1;
+  $("#player-expand-details").setAttribute("aria-label", isMobile ? "Expand now playing" : "Current track details");
 }
 
 function openExpandedPlayer(trigger) {
@@ -1326,6 +1374,7 @@ function closeExpandedPlayer(immediate = false) {
 $("#player-cover").addEventListener("click", (event) => openExpandedPlayer(event.currentTarget));
 $("#player-expand-details").addEventListener("click", (event) => openExpandedPlayer(event.currentTarget));
 $("#collapse-player-button").addEventListener("click", () => closeExpandedPlayer());
+updatePlayerExpandTriggers();
 
 document.addEventListener("keydown", (event) => {
   const player = $("#now-playing");
@@ -1353,6 +1402,8 @@ document.addEventListener("keydown", (event) => {
 
 window.addEventListener("resize", () => {
   if (!isMobilePlayer()) closeExpandedPlayer(true);
+  updatePlayerExpandTriggers();
+  observeSongItems(document);
 });
 $("#shuffle-button").addEventListener("click", () => {
   shuffleEnabled = !shuffleEnabled;
@@ -2063,6 +2114,7 @@ addSongForm.addEventListener("submit", async (event) => {
         $("#player-title").textContent = song.title;
         $("#player-title").title = song.title;
         $("#player-artist").textContent = song.artist;
+        $("#player-album").textContent = song.album;
         renderCurrentPlayerCover(song);
       }
       renderSongChanges();

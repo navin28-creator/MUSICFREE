@@ -323,7 +323,8 @@
         <div class="player-song-copy"><button class="player-expand-details player-expand-trigger"
             id="player-expand-details" type="button" aria-label="Expand now playing" aria-expanded="false"><strong
               id="player-title">Pick a song</strong><span id="player-artist">Your collection is waiting</span></button><span
-            class="player-status" id="player-status" role="status" aria-live="polite" hidden></span></div>
+            class="player-album" id="player-album"></span><span class="player-status" id="player-status" role="status"
+            aria-live="polite" hidden></span></div>
         <button id="like-current" class="icon-button player-like" aria-label="Like current song"
           title="Like this song"><svg viewBox="0 0 24 24">
             <path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z" />
@@ -361,17 +362,26 @@
             </svg></span><span id="duration">0:00</span></div>
       </div>
       <div class="player-extras">
-        <button class="icon-button download-button" id="download-button" aria-label="Download current song"
-          title="Download current song"><svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 3v12m0 0 5-5m-5 5-5-5M4 17v3h16v-3" />
-          </svg></button>
-        <button class="icon-button queue-button" aria-label="Queue" title="Your collection"><svg viewBox="0 0 24 24">
-            <path d="M4 6h16M4 12h12M4 18h8" />
-          </svg><span class="queue-badge"></span></button>
-        <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M4 10v4h4l5 4V6l-5 4zM17 9a5 5 0 0 1 0 6M19 5a10 10 0 0 1 0 14" />
-        </svg>
-        <input id="volume" class="volume-slider" type="range" min="0" max="100" value="72" aria-label="Volume" />
+        <div class="player-volume-control">
+          <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 10v4h4l5 4V6l-5 4zM17 9a5 5 0 0 1 0 6M19 5a10 10 0 0 1 0 14" />
+          </svg>
+          <input id="volume" class="volume-slider" type="range" min="0" max="100" value="72" aria-label="Volume" />
+        </div>
+        <div class="player-action-group">
+          <button class="icon-button player-add-playlist-button" id="player-add-playlist-button" type="button"
+            aria-label="Add current song to a playlist" title="Add to playlist"><svg viewBox="0 0 24 24"
+              aria-hidden="true">
+              <path d="M4 6h11M4 11h11M4 16h6M19 13v8m-4-4h8" />
+            </svg></button>
+          <button class="icon-button download-button" id="download-button" aria-label="Download current song"
+            title="Download current song"><svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v12m0 0 5-5m-5 5-5-5M4 17v3h16v-3" />
+            </svg></button>
+          <button class="icon-button queue-button" aria-label="Queue" title="Your collection"><svg viewBox="0 0 24 24">
+              <path d="M4 6h16M4 12h12M4 18h8" />
+            </svg><span class="queue-badge"></span></button>
+        </div>
       </div>
     </section>
     <audio id="audio" preload="metadata"></audio>
