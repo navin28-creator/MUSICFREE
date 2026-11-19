@@ -988,7 +988,7 @@ function startNextPlaybackCycle(previousSong) {
 }
 
 function playSelectedTrack(song, trackRow) {
-  const playlistId = trackRow?.dataset.playlistId;
+  const playlistId = trackRow?.dataset.playlistContext;
   if (!playlistId) {
     startSongPlayback(song);
     return;
@@ -1115,17 +1115,17 @@ function trackMarkup(list, playlistId = null) {
   return list.map((song) => {
     const liked = favoriteIds.has(song.id);
     const songIndex = songs.indexOf(song);
-    const playlistContext = playlistId ? `data-playlist-id="${escapeHtml(playlistId)}"` : "";
+    const playlistContext = playlistId ? `data-playlist-context="${escapeHtml(playlistId)}"` : "";
     const playlistButton = playlistId
-      ? `<button class="track-add-playlist track-remove-playlist" data-remove-song-from-playlist="${escapeHtml(playlistId)}" data-song-id="${escapeHtml(song.id)}" aria-label="Remove ${escapeHtml(song.title)} from this playlist" title="Remove from playlist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"/></svg></button>`
-      : `<button class="track-add-playlist" data-add-song-to-playlist="${escapeHtml(song.id)}" aria-label="Add ${escapeHtml(song.title)} to a playlist" title="Add to playlist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h11M4 11h11M4 16h6M19 13v8m-4-4h8"/></svg></button>`;
+      ? `<button type="button" class="track-add-playlist track-remove-playlist" data-remove-song-from-playlist="${escapeHtml(playlistId)}" data-song-id="${escapeHtml(song.id)}" aria-label="Remove ${escapeHtml(song.title)} from this playlist" title="Remove from playlist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16"/></svg></button>`
+      : `<button type="button" class="track-add-playlist" data-add-song-to-playlist="${escapeHtml(song.id)}" aria-label="Add ${escapeHtml(song.title)} to a playlist" title="Add to playlist"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h11M4 11h11M4 16h6M19 13v8m-4-4h8"/></svg></button>`;
     const songActions = `<span class="track-actions">${playlistButton}${authenticatedRole === "admin"
-      ? `<button class="track-edit" data-edit-song="${escapeHtml(song.id)}" aria-label="Edit information for ${escapeHtml(song.title)}" title="Edit song information"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 5 3 3M4 20l4.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L4 20Z"/></svg></button><button class="track-delete" data-delete-song="${escapeHtml(song.id)}" aria-label="Delete ${escapeHtml(song.title)}" title="Delete song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-.9 14H5.9L5 6m4 4v6m6-6v6"/></svg></button>`
+      ? `<button type="button" class="track-edit" data-edit-song="${escapeHtml(song.id)}" aria-label="Edit information for ${escapeHtml(song.title)}" title="Edit song information"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 5 3 3M4 20l4.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L4 20Z"/></svg></button><button type="button" class="track-delete" data-delete-song="${escapeHtml(song.id)}" aria-label="Delete ${escapeHtml(song.title)}" title="Delete song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-.9 14H5.9L5 6m4 4v6m6-6v6"/></svg></button>`
       : ""}</span>`;
     return `<div class="track-row ${currentSong?.id === song.id ? "playing" : ""}" data-track="${song.id}" ${playlistContext} title="${escapeHtml(song.title)}">
-      <span class="track-index">${String(songIndex + 1).padStart(2, "0")}<button class="row-play" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></button></span>
+      <span class="track-index">${String(songIndex + 1).padStart(2, "0")}<button type="button" class="row-play" data-play="${song.id}" aria-label="Play ${escapeHtml(song.title)}"><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z"/></svg></button></span>
       <div class="track-title-cell">${artwork(song, "track-thumb")}<span class="track-title-copy"><strong title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</strong><span>${escapeHtml(song.artist)} · ${song.year}</span></span></div><span class="track-album"><strong>${escapeHtml(song.album)}</strong><small>${escapeHtml(song.composer)}</small></span>
-      <button class="track-like ${liked ? "liked" : ""}" data-like="${song.id}" aria-label="${liked ? "Remove" : "Add"} ${escapeHtml(song.title)} ${liked ? "from" : "to"} liked songs"><svg viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z"/></svg></button><span class="track-duration" data-duration="${song.id}">${song.duration}</span>${songActions}
+      <button type="button" class="track-like ${liked ? "liked" : ""}" data-like="${song.id}" aria-label="${liked ? "Remove" : "Add"} ${escapeHtml(song.title)} ${liked ? "from" : "to"} liked songs"><svg viewBox="0 0 24 24"><path d="M12 20s-8-4.6-8-10a4.5 4.5 0 0 1 8-2.9A4.5 4.5 0 0 1 20 10c0 5.4-8 10-8 10Z"/></svg></button><span class="track-duration" data-duration="${song.id}">${song.duration}</span>${songActions}
     </div>`;
   }).join("");
 }
@@ -1325,6 +1325,7 @@ document.addEventListener("click", (event) => {
     return;
   }
   if (playTarget) {
+    event.preventDefault();
     const song = songs.find((item) => item.id === playTarget.dataset.play);
     if (song) playSelectedTrack(song, playTarget.closest("[data-track]"));
     return;
