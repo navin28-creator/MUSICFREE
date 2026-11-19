@@ -1233,6 +1233,17 @@ svg {
     color: #999a90;
     opacity: 1;
   }
+
+  .track-index,
+  .track-row:hover .track-index,
+  .track-row.playing .track-index {
+    visibility: visible;
+    color: transparent;
+  }
+
+  .row-play {
+    display: grid;
+  }
 }
 
 .page-footer {
